@@ -483,8 +483,13 @@ function confirmPick() {
 
   isProcessing = true;
 
-  // Show loading
-  document.getElementById('sku-info-container').innerHTML = '<div class="text-center py-4"><div class="spinner-border text-success"></div><p class="mt-2">กำลังบันทึก...</p></div>';
+  // ⚠️ แก้ไข: ซ่อน sku-info-container แทนที่จะทำลาย DOM (ป้องกัน null error)
+  document.getElementById('sku-info-container').style.display = 'none';
+
+  // แสดง loading ที่ scanner-container แทน
+  const scannerContainer = document.getElementById('scanner-container');
+  scannerContainer.style.display = 'block';
+  scannerContainer.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-success"></div><p class="mt-2">กำลังบันทึก...</p></div>';
 
   fetch('/api/pick/sku', {
     method: 'POST',
@@ -554,8 +559,13 @@ function markShortage() {
 
   isProcessing = true;
 
-  // Show loading
-  document.getElementById('sku-info-container').innerHTML = '<div class="text-center py-4"><div class="spinner-border text-warning"></div><p class="mt-2">กำลังบันทึก Shortage...</p></div>';
+  // ⚠️ แก้ไข: ซ่อน sku-info-container แทนที่จะทำลาย DOM (ป้องกัน null error)
+  document.getElementById('sku-info-container').style.display = 'none';
+
+  // แสดง loading ที่ scanner-container แทน
+  const scannerContainer = document.getElementById('scanner-container');
+  scannerContainer.style.display = 'block';
+  scannerContainer.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-warning"></div><p class="mt-2">กำลังบันทึก Shortage...</p></div>';
 
   fetch('/api/pick/sku', {
     method: 'POST',
@@ -623,8 +633,13 @@ function resetSKU() {
   hideAllContainers();
   document.getElementById('scanner-container').style.display = 'block';
   document.getElementById('scanner-container').innerHTML = '<div id="qr-reader" style="width: 100%; max-width: 500px; margin: 0 auto;"></div>';
-  document.getElementById('sku-input').value = '';
-  document.getElementById('pick-qty').value = '1';
+
+  // ⚠️ Null check: ป้องกัน error "Cannot set properties of null"
+  const skuInput = document.getElementById('sku-input');
+  if (skuInput) skuInput.value = '';
+
+  const pickQtyInput = document.getElementById('pick-qty');
+  if (pickQtyInput) pickQtyInput.value = '1';
 
   currentSKU = null;
   isProcessing = false;
