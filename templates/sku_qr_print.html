@@ -51,17 +51,53 @@
       font-size: 11pt;
     }
 
+    .section {
+      margin-bottom: 30px;
+      page-break-inside: avoid;
+    }
+
+    .section-header {
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+      color: white;
+      padding: 12px 20px;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      font-size: 14pt;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .section-header.batch {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    }
+
+    .section-header.tracking {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    }
+
     .qr-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 15px;
       page-break-inside: avoid;
+    }
+
+    .qr-grid.batch-grid {
+      grid-template-columns: 1fr;
+      max-width: 400px;
+      margin: 0 auto;
+    }
+
+    .qr-grid.tracking-grid {
+      grid-template-columns: repeat(3, 1fr);
     }
 
     .qr-item {
       border: 2px solid #d1d5db;
       border-radius: 8px;
-      padding: 15px;
+      padding: 12px;
       text-align: center;
       background: #ffffff;
       box-shadow: 0 1px 3px rgba(0,0,0,0.1);
@@ -73,9 +109,19 @@
       box-shadow: 0 4px 6px rgba(0,0,0,0.15);
     }
 
+    .qr-item.batch-item img {
+      width: 200px;
+      height: 200px;
+    }
+
+    .qr-item.tracking-item img {
+      width: 120px;
+      height: 120px;
+    }
+
     .qr-item img {
-      width: 150px;
-      height: 150px;
+      width: 100px;
+      height: 100px;
       display: block;
       margin: 0 auto 10px;
       border: 1px solid #e5e7eb;
@@ -221,38 +267,87 @@
 
   <!-- Summary -->
   <div class="summary">
-    <strong>จำนวน SKU ทั้งหมด:</strong> {{ total_skus }} รายการ |
-    <strong>คำแนะนำ:</strong> พิมพ์และติดที่ชั้นวาง หรือใช้สแกนเพื่อหยิบสินค้า
+    <strong>Batch QR:</strong> 1 รายการ |
+    <strong>Tracking QR:</strong> {{ total_trackings }} รายการ |
+    <strong>SKU QR:</strong> {{ total_skus }} รายการ
   </div>
 
-  <!-- QR Code Grid -->
-  <div class="qr-grid">
-    {% for item in sku_list %}
-    <div class="qr-item">
-      <!-- QR Code -->
-      <img src="{{ url_for('generate_qr', text=item.sku) }}"
-           alt="QR Code for {{ item.sku }}">
-
-      <!-- SKU Code -->
-      <div class="sku-code">{{ item.sku }}</div>
-
-      <!-- Product Info -->
-      <div class="brand">{{ item.brand or '-' }}</div>
-      <div class="product-name">{{ item.model or item.item_name or '-' }}</div>
-
-      <!-- Stock Info -->
-      <div class="stock-info">
-        <div class="info-item">
-          <span class="label">ต้องหยิบ</span>
-          <span class="value need">{{ item.need_qty }}</span>
+  <!-- Section 1: Batch QR Code -->
+  <div class="section">
+    <div class="section-header batch">
+      <span>📦</span>
+      <span>Section 1: QR Code สำหรับรับงาน Batch</span>
+    </div>
+    <div class="qr-grid batch-grid">
+      <div class="qr-item batch-item">
+        <img src="{{ url_for('generate_qr', text=batch.batch_id) }}"
+             alt="QR Code for Batch {{ batch.batch_id }}">
+        <div class="sku-code" style="font-size: 16pt;">{{ batch.batch_id }}</div>
+        <div class="product-name" style="font-size: 10pt; margin-top: 8px;">
+          <strong>สแกนเพื่อรับงาน Batch</strong>
         </div>
-        <div class="info-item">
-          <span class="label">สต็อก</span>
-          <span class="value stock">{{ item.stock_qty }}</span>
+        <div class="stock-info" style="border-top: 2px solid #3b82f6;">
+          <div class="info-item">
+            <span class="label">Platform</span>
+            <span class="value" style="color: #3b82f6;">{{ batch.platform }}</span>
+          </div>
+          <div class="info-item">
+            <span class="label">Orders</span>
+            <span class="value" style="color: #3b82f6;">{{ batch.total_orders }}</span>
+          </div>
         </div>
       </div>
     </div>
-    {% endfor %}
+  </div>
+
+  <!-- Section 2: Tracking QR Codes -->
+  {% if tracking_list %}
+  <div class="section">
+    <div class="section-header tracking">
+      <span>🚚</span>
+      <span>Section 2: QR Code Tracking Numbers ({{ total_trackings }} รายการ)</span>
+    </div>
+    <div class="qr-grid tracking-grid">
+      {% for item in tracking_list %}
+      <div class="qr-item tracking-item">
+        <img src="{{ url_for('generate_qr', text=item.tracking) }}"
+             alt="QR Code for {{ item.tracking }}">
+        <div class="sku-code" style="font-size: 9pt;">{{ item.tracking }}</div>
+        <div class="brand" style="font-size: 7pt;">{{ item.carrier }}</div>
+        <div class="product-name" style="font-size: 7pt; min-height: auto;">Order: {{ item.order_id }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Section 3: SKU QR Codes -->
+  <div class="section">
+    <div class="section-header">
+      <span>🏷️</span>
+      <span>Section 3: QR Code สำหรับ SKU ({{ total_skus }} รายการ)</span>
+    </div>
+    <div class="qr-grid">
+      {% for item in sku_list %}
+      <div class="qr-item">
+        <img src="{{ url_for('generate_qr', text=item.sku) }}"
+             alt="QR Code for {{ item.sku }}">
+        <div class="sku-code" style="font-size: 9pt;">{{ item.sku }}</div>
+        <div class="brand" style="font-size: 7pt;">{{ item.brand or '-' }}</div>
+        <div class="product-name" style="font-size: 7pt;">{{ item.model or item.item_name or '-' }}</div>
+        <div class="stock-info">
+          <div class="info-item">
+            <span class="label">หยิบ</span>
+            <span class="value need" style="font-size: 9pt;">{{ item.need_qty }}</span>
+          </div>
+          <div class="info-item">
+            <span class="label">สต็อก</span>
+            <span class="value stock" style="font-size: 9pt;">{{ item.stock_qty }}</span>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
   </div>
 
   <!-- Action Buttons (hidden when printing) -->

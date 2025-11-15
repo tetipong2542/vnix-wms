@@ -2140,7 +2140,10 @@ def create_app():
 
         # รวม SKU ที่ไม่ซ้ำกัน พร้อมข้อมูลสินค้า
         sku_dict = {}
+        tracking_dict = {}
+
         for order in orders:
+            # รวม SKU
             if order.sku not in sku_dict:
                 product = Product.query.filter_by(sku=order.sku).first()
                 stock = Stock.query.filter_by(sku=order.sku).first()
@@ -2157,14 +2160,25 @@ def create_app():
             # นับจำนวนที่ต้องหยิบ
             sku_dict[order.sku]["need_qty"] += order.qty
 
-        # แปลงเป็น list และเรียงตาม SKU
+            # รวม Tracking Numbers (ไม่ซ้ำกัน)
+            if order.tracking_number and order.tracking_number not in tracking_dict:
+                tracking_dict[order.tracking_number] = {
+                    "tracking": order.tracking_number,
+                    "order_id": order.order_id,
+                    "carrier": order.carrier or "Unknown"
+                }
+
+        # แปลงเป็น list และเรียงตาม SKU / Tracking
         sku_list = sorted(sku_dict.values(), key=lambda x: x["sku"])
+        tracking_list = sorted(tracking_dict.values(), key=lambda x: x["tracking"])
 
         return render_template(
             "sku_qr_print.html",
             batch=batch,
             sku_list=sku_list,
-            total_skus=len(sku_list)
+            tracking_list=tracking_list,
+            total_skus=len(sku_list),
+            total_trackings=len(tracking_list)
         )
 
     @app.route("/export_picking.xlsx")

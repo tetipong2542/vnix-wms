@@ -894,16 +894,15 @@
     <thead>
       <tr>
         <th style="width: 3%;">#</th>
-        <th style="width: 7%;" class="text-center">QR Code</th>
         <th style="width: 12%;">SKU</th>
-        <th style="width: 8%;">Brand</th>
-        <th style="width: 19%;">สินค้า</th>
-        <th style="width: 6%;" class="text-center">ต้องหยิบ</th>
-        <th style="width: 6%;" class="text-center">สต็อก</th>
-        <th style="width: 5%;" class="text-center">ขาด</th>
-        <th style="width: 6%;" class="text-center">คงเหลือ</th>
+        <th style="width: 9%;">Brand</th>
+        <th style="width: 22%;">สินค้า</th>
+        <th style="width: 7%;" class="text-center">ต้องหยิบ</th>
+        <th style="width: 7%;" class="text-center">สต็อก</th>
+        <th style="width: 6%;" class="text-center">ขาด</th>
+        <th style="width: 7%;" class="text-center">คงเหลือ</th>
         <th style="width: 6%;">แพลตฟอร์ม</th>
-        <th style="width: 14%;">ขนส่ง</th>
+        <th style="width: 13%;">ขนส่ง</th>
         <th style="width: 8%;">หมายเหตุ</th>
       </tr>
     </thead>
@@ -911,11 +910,6 @@
       {% for it in items %}
         <tr class="{% if it.shortage > 0 %}shortage-row{% endif %}">
           <td class="text-center">{{ loop.index }}</td>
-          <td class="text-center" style="padding: 3px;">
-            <img src="{{ url_for('generate_qr', text=it.sku) }}"
-                 alt="QR {{ it.sku }}"
-                 style="width: 45px; height: 45px; display: inline-block; border: 1px solid #ddd;">
-          </td>
           <td><code style="font-size: 7.5pt; font-weight: 600;">{{ it.sku }}</code></td>
           <td>{{ it.brand }}</td>
           <td>{{ it.model }}</td>

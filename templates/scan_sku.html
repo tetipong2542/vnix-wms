@@ -265,16 +265,30 @@ function submitSKU(sku = null) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sku: sku })
   })
-  .then(response => response.json())
+  .then(response => {
+    // Check if response is OK
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    // Check if response is JSON
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      throw new Error('ระบบตอบกลับในรูปแบบที่ไม่ถูกต้อง กรุณา restart Flask app');
+    }
+
+    return response.json();
+  })
   .then(data => {
     if (data.success) {
       currentSKU = data;
       showSKUInfo(data);
     } else {
-      showError(data.error);
+      showError(data.error || 'ไม่พบข้อมูล SKU');
     }
   })
   .catch(err => {
+    console.error('Scan SKU Error:', err);
     showError('เกิดข้อผิดพลาด: ' + err.message);
   })
   .finally(() => {
