@@ -68,11 +68,7 @@
             <th>วันที่</th>
             <th>จำนวนออเดอร์</th>
             <th class="d-none d-lg-table-cell">Carriers</th>
-            <th class="d-none d-xl-table-cell">SPX</th>
-            <th class="d-none d-xl-table-cell">Flash</th>
-            <th class="d-none d-xl-table-cell">LEX</th>
-            <th class="d-none d-xl-table-cell">J&T</th>
-            <th class="d-none d-xl-table-cell">Other</th>
+            <th>Progress</th>
             <th>สถานะ</th>
             <th class="d-none d-md-table-cell">สร้างโดย</th>
             <th>การกระทำ</th>
@@ -115,11 +111,22 @@
                 <span class="badge bg-secondary">Other: {{ batch.other_count }}</span>
               {% endif %}
             </td>
-            <td class="d-none d-xl-table-cell">{{ batch.spx_count }}</td>
-            <td class="d-none d-xl-table-cell">{{ batch.flash_count }}</td>
-            <td class="d-none d-xl-table-cell">{{ batch.lex_count }}</td>
-            <td class="d-none d-xl-table-cell">{{ batch.jt_count }}</td>
-            <td class="d-none d-xl-table-cell">{{ batch.other_count }}</td>
+            <td>
+              {% set progress = batch_progress.get(batch.batch_id, {"total": 0, "dispatched": 0, "pending": 0, "percent": 0}) %}
+              <div class="d-flex align-items-center gap-2">
+                <div class="progress flex-grow-1" style="height: 20px; min-width: 100px;">
+                  <div class="progress-bar {% if progress.percent == 100 %}bg-success{% elif progress.percent >= 50 %}bg-info{% else %}bg-warning{% endif %}"
+                       role="progressbar"
+                       style="width: {{ progress.percent }}%"
+                       aria-valuenow="{{ progress.percent }}"
+                       aria-valuemin="0"
+                       aria-valuemax="100">
+                    {{ progress.percent }}%
+                  </div>
+                </div>
+                <small class="text-muted text-nowrap">{{ progress.dispatched }}/{{ progress.total }}</small>
+              </div>
+            </td>
             <td>
               {% if batch.locked %}
                 <span class="badge bg-success fs-6">🔒 Locked</span>

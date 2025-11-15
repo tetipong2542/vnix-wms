@@ -951,7 +951,32 @@ def create_app():
 
         pending_counts = {platform: count for platform, count in pending_by_platform}
 
-        return render_template("batch_list.html", batches=batches, pending_counts=pending_counts)
+        # คำนวณ Progress ของแต่ละ Batch (สำหรับแสดงใน UI)
+        batch_progress = {}
+        for batch in batches:
+            total = OrderLine.query.filter_by(batch_id=batch.batch_id).count()
+            dispatched = OrderLine.query.filter_by(
+                batch_id=batch.batch_id,
+                dispatch_status="dispatched"
+            ).count()
+
+            if total > 0:
+                progress_percent = (dispatched / total) * 100
+                batch_progress[batch.batch_id] = {
+                    "total": total,
+                    "dispatched": dispatched,
+                    "pending": total - dispatched,
+                    "percent": round(progress_percent, 1)
+                }
+            else:
+                batch_progress[batch.batch_id] = {
+                    "total": 0,
+                    "dispatched": 0,
+                    "pending": 0,
+                    "percent": 0
+                }
+
+        return render_template("batch_list.html", batches=batches, pending_counts=pending_counts, batch_progress=batch_progress)
 
     @app.route("/batch/create", methods=["GET", "POST"])
     @login_required
