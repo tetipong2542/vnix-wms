@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="row justify-content-center">
+    <div class="col-lg-8">
+      <div class="card shadow-sm">
+        <div class="card-header bg-primary text-white">
+          <h4 class="mb-0">
+            <i data-lucide="scan" style="width: 24px; height: 24px;"></i>
+            สแกน Batch เพื่อรับงาน
+          </h4>
+        </div>
+        <div class="card-body">
+          <!-- Scanner Area -->
+          <div id="scanner-container" class="mb-4">
+            <div id="qr-reader" style="width: 100%; max-width: 500px; margin: 0 auto;"></div>
+          </div>
+
+          <!-- Manual Input (Fallback) -->
+          <div class="mb-3">
+            <label for="batch-input" class="form-label">หรือพิมพ์ Batch ID ด้วยตนเอง:</label>
+            <div class="input-group">
+              <input
+                type="text"
+                class="form-control"
+                id="batch-input"
+                placeholder="เช่น SH-2024-11-15-R1"
+                autocomplete="off"
+              >
+              <button class="btn btn-primary" type="button" onclick="submitBatchManual()">
+                <i data-lucide="check" style="width: 16px; height: 16px;"></i> ยืนยัน
+              </button>
+            </div>
+          </div>
+
+          <!-- Result Display -->
+          <div id="result-container" class="mt-4" style="display: none;">
+            <div class="alert alert-success">
+              <h5>✓ รับงานสำเร็จ!</h5>
+              <hr>
+              <p class="mb-1"><strong>Batch ID:</strong> <span id="result-batch-id"></span></p>
+              <p class="mb-1"><strong>Platform:</strong> <span id="result-platform"></span></p>
+              <p class="mb-1"><strong>จำนวนออเดอร์:</strong> <span id="result-total-orders"></span></p>
+              <p class="mb-1"><strong>รับงานโดย:</strong> <span id="result-accepted-by"></span></p>
+              <p class="mb-0"><strong>เวลา:</strong> <span id="result-accepted-at"></span></p>
+            </div>
+            <div class="d-grid gap-2">
+              <button class="btn btn-success btn-lg" onclick="window.location.href='{{ url_for('scan_sku') }}'">
+                <i data-lucide="arrow-right" style="width: 20px; height: 20px;"></i>
+                ไปหน้าหยิบของ (Scan SKU)
+              </button>
+              <button class="btn btn-outline-secondary" onclick="resetScanner()">
+                <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
+                สแกน Batch ใหม่
+              </button>
+            </div>
+          </div>
+
+          <!-- Error Display -->
+          <div id="error-container" class="mt-4" style="display: none;">
+            <div class="alert alert-danger">
+              <h5>⚠ เกิดข้อผิดพลาด</h5>
+              <p id="error-message" class="mb-0"></p>
+            </div>
+            <button class="btn btn-outline-secondary" onclick="resetScanner()">
+              <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
+              ลองใหม่
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Instructions -->
+      <div class="card mt-4 shadow-sm">
+        <div class="card-header bg-light">
+          <h5 class="mb-0">
+            <i data-lucide="info" style="width: 20px; height: 20px;"></i>
+            วิธีใช้งาน
+          </h5>
+        </div>
+        <div class="card-body">
+          <ol class="mb-0">
+            <li>นำใบงาน Batch ที่มี QR Code มาสแกน</li>
+            <li>รอระบบตรวจสอบและรับงานอัตโนมัติ</li>
+            <li>เมื่อรับงานสำเร็จ ให้ไปหน้า "หยิบของ" เพื่อเริ่มหยิบสินค้า</li>
+            <li>ระบบจะบันทึก Log ว่าคุณรับงาน Batch นี้แล้ว</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- html5-qrcode Library -->
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+<script>
+let html5QrCode;
+let isProcessing = false;
+
+// Initialize QR Scanner
+function initScanner() {
+  html5QrCode = new Html5Qrcode("qr-reader");
+
+  html5QrCode.start(
+    { facingMode: "environment" }, // Use back camera
+    {
+      fps: 10,
+      qrbox: { width: 250, height: 250 }
+    },
+    onScanSuccess,
+    onScanError
+  ).catch(err => {
+    console.error("Cannot start scanner:", err);
+    // Scanner might not be available, manual input is still available
+  });
+}
+
+function onScanSuccess(decodedText, decodedResult) {
+  if (isProcessing) return; // Prevent multiple scans
+
+  console.log("Scanned:", decodedText);
+  submitBatch(decodedText);
+}
+
+function onScanError(errorMessage) {
+  // Don't log scan errors (too noisy)
+}
+
+function submitBatch(batchId) {
+  if (isProcessing) return;
+  isProcessing = true;
+
+  // Stop scanner
+  if (html5QrCode && html5QrCode.isScanning) {
+    html5QrCode.stop();
+  }
+
+  // Hide previous results
+  document.getElementById('result-container').style.display = 'none';
+  document.getElementById('error-container').style.display = 'none';
+
+  // Show loading
+  const scannerContainer = document.getElementById('scanner-container');
+  scannerContainer.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary" role="status"></div><p class="mt-2">กำลังตรวจสอบ...</p></div>';
+
+  // Call API
+  fetch('/api/scan/batch', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ batch_id: batchId })
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      showSuccess(data);
+    } else {
+      showError(data.error);
+    }
+  })
+  .catch(err => {
+    showError('เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + err.message);
+  })
+  .finally(() => {
+    isProcessing = false;
+  });
+}
+
+function submitBatchManual() {
+  const input = document.getElementById('batch-input');
+  const batchId = input.value.trim();
+
+  if (!batchId) {
+    alert('กรุณาระบุ Batch ID');
+    return;
+  }
+
+  submitBatch(batchId);
+}
+
+function showSuccess(data) {
+  document.getElementById('result-batch-id').textContent = data.batch_id;
+  document.getElementById('result-platform').textContent = data.platform;
+  document.getElementById('result-total-orders').textContent = data.total_orders;
+  document.getElementById('result-accepted-by').textContent = data.accepted_by;
+  document.getElementById('result-accepted-at').textContent = new Date(data.accepted_at).toLocaleString('th-TH');
+
+  document.getElementById('result-container').style.display = 'block';
+  document.getElementById('scanner-container').style.display = 'none';
+
+  // Refresh icons
+  if (window.refreshIcons) window.refreshIcons();
+}
+
+function showError(message) {
+  document.getElementById('error-message').textContent = message;
+  document.getElementById('error-container').style.display = 'block';
+  document.getElementById('scanner-container').style.display = 'none';
+}
+
+function resetScanner() {
+  document.getElementById('result-container').style.display = 'none';
+  document.getElementById('error-container').style.display = 'none';
+  document.getElementById('scanner-container').style.display = 'block';
+  document.getElementById('scanner-container').innerHTML = '<div id="qr-reader" style="width: 100%; max-width: 500px; margin: 0 auto;"></div>';
+  document.getElementById('batch-input').value = '';
+
+  isProcessing = false;
+  initScanner();
+
+  // Refresh icons
+  if (window.refreshIcons) window.refreshIcons();
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+  initScanner();
+
+  // Allow Enter key to submit
+  document.getElementById('batch-input').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+      submitBatchManual();
+    }
+  });
+});
+</script>
+{% endblock %}

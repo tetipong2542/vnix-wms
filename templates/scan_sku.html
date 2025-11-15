@@ -1,0 +1,366 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="row justify-content-center">
+    <div class="col-lg-10">
+      <div class="card shadow-sm">
+        <div class="card-header bg-success text-white">
+          <h4 class="mb-0">
+            <i data-lucide="package-search" style="width: 24px; height: 24px;"></i>
+            สแกน SKU เพื่อหยิบสินค้า
+          </h4>
+        </div>
+        <div class="card-body">
+          <!-- Scanner Area -->
+          <div id="scanner-container" class="mb-4">
+            <div id="qr-reader" style="width: 100%; max-width: 500px; margin: 0 auto;"></div>
+          </div>
+
+          <!-- Manual Input -->
+          <div class="mb-3">
+            <label for="sku-input" class="form-label">หรือพิมพ์ SKU ด้วยตนเอง:</label>
+            <div class="input-group">
+              <input
+                type="text"
+                class="form-control form-control-lg"
+                id="sku-input"
+                placeholder="เช่น SKU-001"
+                autocomplete="off"
+              >
+              <button class="btn btn-success" type="button" onclick="submitSKU()">
+                <i data-lucide="search" style="width: 16px; height: 16px;"></i> ค้นหา
+              </button>
+            </div>
+          </div>
+
+          <!-- SKU Info Display -->
+          <div id="sku-info-container" style="display: none;">
+            <div class="card border-primary mb-3">
+              <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">ข้อมูล SKU</h5>
+              </div>
+              <div class="card-body">
+                <div class="row">
+                  <div class="col-md-6">
+                    <p class="mb-2"><strong>SKU:</strong> <span id="info-sku" class="text-primary fs-5"></span></p>
+                    <p class="mb-2"><strong>Brand:</strong> <span id="info-brand"></span></p>
+                    <p class="mb-2"><strong>Model:</strong> <span id="info-model"></span></p>
+                    <p class="mb-0"><strong>สต็อกคงเหลือ:</strong> <span id="info-stock" class="badge bg-info"></span></p>
+                  </div>
+                  <div class="col-md-6">
+                    <div class="alert alert-info mb-0">
+                      <h6 class="alert-heading">สถานะการหยิบ</h6>
+                      <hr>
+                      <p class="mb-1"><strong>ต้องการ (Need):</strong> <span id="info-need" class="text-danger fs-5"></span></p>
+                      <p class="mb-1"><strong>หยิบแล้ว (Picked):</strong> <span id="info-picked" class="text-success fs-5"></span></p>
+                      <p class="mb-0"><strong>ยังต้องหยิบ (Remaining):</strong> <span id="info-remaining" class="text-warning fs-4 fw-bold"></span></p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Picking Actions -->
+            <div class="card border-success">
+              <div class="card-header bg-success text-white">
+                <h5 class="mb-0">บันทึกการหยิบ</h5>
+              </div>
+              <div class="card-body">
+                <div class="row align-items-center">
+                  <div class="col-md-6">
+                    <label for="pick-qty" class="form-label">จำนวนที่หยิบ:</label>
+                    <input
+                      type="number"
+                      class="form-control form-control-lg text-center"
+                      id="pick-qty"
+                      value="1"
+                      min="1"
+                    >
+                  </div>
+                  <div class="col-md-6">
+                    <label class="form-label d-block">&nbsp;</label>
+                    <div class="d-grid gap-2">
+                      <button class="btn btn-outline-secondary" onclick="adjustQty(1)">+1</button>
+                      <button class="btn btn-outline-secondary" onclick="adjustQty(5)">+5</button>
+                    </div>
+                  </div>
+                </div>
+                <hr>
+                <div class="d-grid gap-2">
+                  <button class="btn btn-success btn-lg" onclick="confirmPick()">
+                    <i data-lucide="check-circle" style="width: 20px; height: 20px;"></i>
+                    ยืนยันการหยิบ
+                  </button>
+                  <button class="btn btn-outline-warning" onclick="resetSKU()">
+                    <i data-lucide="x-circle" style="width: 16px; height: 16px;"></i>
+                    ยกเลิก / สแกน SKU ใหม่
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Success Message -->
+          <div id="success-container" class="mt-4" style="display: none;">
+            <div class="alert alert-success">
+              <h5>✓ บันทึกการหยิบสำเร็จ!</h5>
+              <p id="success-message" class="mb-0"></p>
+            </div>
+            <div class="d-grid gap-2">
+              <button class="btn btn-success" onclick="resetSKU()">
+                <i data-lucide="scan" style="width: 16px; height: 16px;"></i>
+                สแกน SKU ต่อไป
+              </button>
+              <button class="btn btn-primary" onclick="window.location.href='{{ url_for('scan_tracking') }}'">
+                <i data-lucide="arrow-right" style="width: 16px; height: 16px;"></i>
+                ไปหน้าส่งของ (Scan Tracking)
+              </button>
+            </div>
+          </div>
+
+          <!-- Error Display -->
+          <div id="error-container" class="mt-4" style="display: none;">
+            <div class="alert alert-danger">
+              <h5>⚠ เกิดข้อผิดพลาด</h5>
+              <p id="error-message" class="mb-0"></p>
+            </div>
+            <button class="btn btn-outline-secondary" onclick="resetSKU()">
+              <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
+              ลองใหม่
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Instructions -->
+      <div class="card mt-4 shadow-sm">
+        <div class="card-header bg-light">
+          <h5 class="mb-0">
+            <i data-lucide="info" style="width: 20px; height: 20px;"></i>
+            วิธีใช้งาน
+          </h5>
+        </div>
+        <div class="card-body">
+          <ol class="mb-0">
+            <li>สแกน SKU จากสินค้าหรือชั้นวาง</li>
+            <li>ระบบจะแสดงข้อมูล Need / Picked / Remaining</li>
+            <li>ระบุจำนวนที่หยิบ แล้วกดยืนยัน</li>
+            <li>ระบบจะบันทึก Log การหยิบของคุณอัตโนมัติ</li>
+            <li>หยิบต่อไปจนครบทุก SKU แล้วไปหน้าส่งของ</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- html5-qrcode Library -->
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+<script>
+let html5QrCode;
+let isProcessing = false;
+let currentSKU = null;
+
+// Initialize QR Scanner
+function initScanner() {
+  html5QrCode = new Html5Qrcode("qr-reader");
+
+  html5QrCode.start(
+    { facingMode: "environment" },
+    {
+      fps: 10,
+      qrbox: { width: 250, height: 250 }
+    },
+    onScanSuccess,
+    onScanError
+  ).catch(err => {
+    console.error("Cannot start scanner:", err);
+  });
+}
+
+function onScanSuccess(decodedText, decodedResult) {
+  if (isProcessing) return;
+  console.log("Scanned SKU:", decodedText);
+  submitSKU(decodedText);
+}
+
+function onScanError(errorMessage) {
+  // Don't log scan errors
+}
+
+function submitSKU(sku = null) {
+  if (isProcessing) return;
+  isProcessing = true;
+
+  if (!sku) {
+    sku = document.getElementById('sku-input').value.trim();
+  }
+
+  if (!sku) {
+    alert('กรุณาระบุ SKU');
+    isProcessing = false;
+    return;
+  }
+
+  // Stop scanner
+  if (html5QrCode && html5QrCode.isScanning) {
+    html5QrCode.stop();
+  }
+
+  // Hide containers
+  hideAllContainers();
+
+  // Show loading
+  const scannerContainer = document.getElementById('scanner-container');
+  scannerContainer.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-success" role="status"></div><p class="mt-2">กำลังค้นหา...</p></div>';
+
+  // Call API
+  fetch('/api/scan/sku', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sku: sku })
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      currentSKU = data;
+      showSKUInfo(data);
+    } else {
+      showError(data.error);
+    }
+  })
+  .catch(err => {
+    showError('เกิดข้อผิดพลาด: ' + err.message);
+  })
+  .finally(() => {
+    isProcessing = false;
+  });
+}
+
+function showSKUInfo(data) {
+  document.getElementById('info-sku').textContent = data.sku;
+  document.getElementById('info-brand').textContent = data.brand || '-';
+  document.getElementById('info-model').textContent = data.model || '-';
+  document.getElementById('info-stock').textContent = data.stock_qty;
+  document.getElementById('info-need').textContent = data.total_need;
+  document.getElementById('info-picked').textContent = data.total_picked;
+  document.getElementById('info-remaining').textContent = data.total_remaining;
+
+  // Set default pick quantity to remaining
+  document.getElementById('pick-qty').value = data.total_remaining;
+
+  document.getElementById('sku-info-container').style.display = 'block';
+  document.getElementById('scanner-container').style.display = 'none';
+
+  if (window.refreshIcons) window.refreshIcons();
+}
+
+function adjustQty(amount) {
+  const input = document.getElementById('pick-qty');
+  const newVal = parseInt(input.value || 0) + amount;
+  input.value = Math.max(1, newVal);
+}
+
+function confirmPick() {
+  const qty = parseInt(document.getElementById('pick-qty').value);
+
+  if (!qty || qty < 1) {
+    alert('กรุณาระบุจำนวนที่ถูกต้อง');
+    return;
+  }
+
+  if (!currentSKU) {
+    alert('กรุณาสแกน SKU ก่อน');
+    return;
+  }
+
+  isProcessing = true;
+
+  // Show loading
+  document.getElementById('sku-info-container').innerHTML = '<div class="text-center py-4"><div class="spinner-border text-success"></div><p class="mt-2">กำลังบันทึก...</p></div>';
+
+  fetch('/api/pick/sku', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sku: currentSKU.sku,
+      qty: qty
+    })
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      showSuccess(data);
+    } else {
+      showError(data.error);
+    }
+  })
+  .catch(err => {
+    showError('เกิดข้อผิดพลาด: ' + err.message);
+  })
+  .finally(() => {
+    isProcessing = false;
+  });
+}
+
+function showSuccess(data) {
+  const message = `
+    <strong>SKU:</strong> ${data.sku}<br>
+    <strong>หยิบไป:</strong> ${data.qty_picked}<br>
+    <strong>ยอดรวม:</strong> Need: ${data.total_need} | Picked: ${data.total_picked} | Remaining: ${data.total_remaining}
+  `;
+
+  document.getElementById('success-message').innerHTML = message;
+  document.getElementById('success-container').style.display = 'block';
+  document.getElementById('sku-info-container').style.display = 'none';
+
+  if (window.refreshIcons) window.refreshIcons();
+}
+
+function showError(message) {
+  document.getElementById('error-message').textContent = message;
+  document.getElementById('error-container').style.display = 'block';
+  document.getElementById('scanner-container').style.display = 'none';
+  document.getElementById('sku-info-container').style.display = 'none';
+}
+
+function hideAllContainers() {
+  document.getElementById('sku-info-container').style.display = 'none';
+  document.getElementById('success-container').style.display = 'none';
+  document.getElementById('error-container').style.display = 'none';
+}
+
+function resetSKU() {
+  hideAllContainers();
+  document.getElementById('scanner-container').style.display = 'block';
+  document.getElementById('scanner-container').innerHTML = '<div id="qr-reader" style="width: 100%; max-width: 500px; margin: 0 auto;"></div>';
+  document.getElementById('sku-input').value = '';
+  document.getElementById('pick-qty').value = '1';
+
+  currentSKU = null;
+  isProcessing = false;
+  initScanner();
+
+  if (window.refreshIcons) window.refreshIcons();
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+  initScanner();
+
+  document.getElementById('sku-input').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+      submitSKU();
+    }
+  });
+
+  document.getElementById('pick-qty').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+      confirmPick();
+    }
+  });
+});
+</script>
+{% endblock %}

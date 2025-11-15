@@ -1,0 +1,361 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="mb-0 fw-bold" style="color: var(--gray-900);">
+      <i data-lucide="package"></i> Batch Management
+    </h2>
+    <a href="{{ url_for('batch_create') }}" class="btn btn-primary">
+      <i data-lucide="plus-circle"></i> สร้าง Batch ใหม่
+    </a>
+  </div>
+
+  <!-- Pending Orders Summary -->
+  <div class="row mb-4">
+    <div class="col-md-12">
+      <div class="card">
+        <div class="card-header bg-warning text-white">
+          <h5 class="mb-0">
+            <i data-lucide="hourglass"></i> ออเดอร์ที่รอสร้าง Batch (Pending)
+          </h5>
+        </div>
+        <div class="card-body">
+          <div class="row">
+            {% for platform in ['Shopee', 'Lazada', 'TikTok'] %}
+            <div class="col-md-4">
+              <div class="card mb-3 border-{{ 'success' if pending_counts.get(platform, 0) > 0 else 'secondary' }}">
+                <div class="card-body text-center">
+                  <h3 class="text-{{ 'success' if pending_counts.get(platform, 0) > 0 else 'muted' }}">
+                    {{ pending_counts.get(platform, 0) }}
+                  </h3>
+                  <p class="mb-2">{{ platform }}</p>
+                  {% if pending_counts.get(platform, 0) > 0 %}
+                    <div class="d-grid gap-2">
+                      <button onclick="loadQuickCreateData('{{ platform }}')" class="btn btn-sm btn-warning" title="สร้างเร็ว - คลิกเดียว">
+                        <i data-lucide="zap"></i> สร้างเร็ว
+                      </button>
+                      <a href="{{ url_for('batch_create', platform=platform) }}" class="btn btn-sm btn-success">
+                        <i data-lucide="plus-circle"></i> สร้าง Batch
+                      </a>
+                    </div>
+                  {% else %}
+                    <span class="text-muted">ไม่มีออเดอร์รอ</span>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Batch List -->
+  <div class="card">
+    <div class="card-header bg-primary text-white">
+      <h5 class="mb-0">รายการ Batch ทั้งหมด</h5>
+    </div>
+    <div class="card-body">
+      {% if batches %}
+      <table class="table table-hover table-bordered" id="batchTable">
+        <thead class="table-dark">
+          <tr>
+            <th>Batch ID</th>
+            <th>Platform</th>
+            <th>Run</th>
+            <th>วันที่</th>
+            <th>จำนวนออเดอร์</th>
+            <th class="d-none d-lg-table-cell">Carriers</th>
+            <th class="d-none d-xl-table-cell">SPX</th>
+            <th class="d-none d-xl-table-cell">Flash</th>
+            <th class="d-none d-xl-table-cell">LEX</th>
+            <th class="d-none d-xl-table-cell">J&T</th>
+            <th class="d-none d-xl-table-cell">Other</th>
+            <th>สถานะ</th>
+            <th class="d-none d-md-table-cell">สร้างโดย</th>
+            <th>การกระทำ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for batch in batches %}
+          <tr>
+            <td><strong>{{ batch.batch_id }}</strong></td>
+            <td>
+              {% if batch.platform == 'Shopee' %}
+                <span class="badge bg-danger fs-6">Shopee</span>
+              {% elif batch.platform == 'Lazada' %}
+                <span class="badge bg-primary fs-6">Lazada</span>
+              {% elif batch.platform == 'TikTok' %}
+                <span class="badge bg-dark fs-6">TikTok</span>
+              {% else %}
+                <span class="badge bg-secondary fs-6">{{ batch.platform }}</span>
+              {% endif %}
+            </td>
+            <td class="text-center">R{{ batch.run_no }}</td>
+            <td>{{ batch.batch_date|be_date }}</td>
+            <td class="text-center">
+              <span class="fs-4 fw-bold text-primary">{{ batch.total_orders }}</span>
+            </td>
+            <td class="text-center d-none d-lg-table-cell">
+              {% if batch.spx_count > 0 %}
+                <span class="badge bg-danger">SPX: {{ batch.spx_count }}</span>
+              {% endif %}
+              {% if batch.flash_count > 0 %}
+                <span class="badge bg-warning text-dark">Flash: {{ batch.flash_count }}</span>
+              {% endif %}
+              {% if batch.lex_count > 0 %}
+                <span class="badge bg-primary">LEX: {{ batch.lex_count }}</span>
+              {% endif %}
+              {% if batch.jt_count > 0 %}
+                <span class="badge bg-success">J&T: {{ batch.jt_count }}</span>
+              {% endif %}
+              {% if batch.other_count > 0 %}
+                <span class="badge bg-secondary">Other: {{ batch.other_count }}</span>
+              {% endif %}
+            </td>
+            <td class="d-none d-xl-table-cell">{{ batch.spx_count }}</td>
+            <td class="d-none d-xl-table-cell">{{ batch.flash_count }}</td>
+            <td class="d-none d-xl-table-cell">{{ batch.lex_count }}</td>
+            <td class="d-none d-xl-table-cell">{{ batch.jt_count }}</td>
+            <td class="d-none d-xl-table-cell">{{ batch.other_count }}</td>
+            <td>
+              {% if batch.locked %}
+                <span class="badge bg-success fs-6">🔒 Locked</span>
+              {% else %}
+                <span class="badge bg-warning text-dark fs-6">🔓 Unlocked</span>
+              {% endif %}
+            </td>
+            <td class="d-none d-md-table-cell">{{ batch.created_by_username or '-' }}</td>
+            <td>
+              <div class="btn-group" role="group">
+                <a href="{{ url_for('batch_detail', batch_id=batch.batch_id) }}" class="btn btn-sm btn-info">
+                  <i data-lucide="eye"></i> รายละเอียด
+                </a>
+                <a href="{{ url_for('batch_summary_json', batch_id=batch.batch_id) }}" class="btn btn-sm btn-secondary d-none d-md-inline" target="_blank">
+                  <i data-lucide="file-code"></i> JSON
+                </a>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="alert alert-info">
+        ยังไม่มี Batch ในระบบ กรุณาสร้าง Batch ใหม่
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Quick Create Modal -->
+<div class="modal fade" id="quickCreateModal" tabindex="-1" aria-labelledby="quickCreateModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-warning">
+        <h5 class="modal-title" id="quickCreateModalLabel">สร้าง Batch แบบรวดเร็ว</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <!-- Loading Spinner -->
+        <div id="quickCreateLoading" class="text-center py-5">
+          <div class="spinner-border text-warning" role="status">
+            <span class="visually-hidden">กำลังโหลด...</span>
+          </div>
+          <p class="mt-3">กำลังโหลดข้อมูล...</p>
+        </div>
+
+        <!-- Error Display -->
+        <div id="quickCreateError" class="alert alert-danger d-none" role="alert"></div>
+
+        <!-- Preview Content -->
+        <div id="quickCreateContent" class="d-none">
+          <div class="alert alert-info">
+            <h6>Batch ID: <strong id="previewBatchId"></strong></h6>
+            <p class="mb-0">Platform: <strong id="previewPlatform"></strong> | Run: <strong id="previewRun"></strong></p>
+          </div>
+
+          <div class="row mb-3">
+            <div class="col-md-12">
+              <div class="card bg-primary text-white">
+                <div class="card-body text-center">
+                  <h2 class="display-4" id="previewTotalOrders">0</h2>
+                  <p class="mb-0">จำนวนออเดอร์ทั้งหมด</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Carrier Summary -->
+          <div class="card mb-3">
+            <div class="card-header bg-secondary text-white">
+              <strong>แยกตามขนส่ง</strong>
+            </div>
+            <div class="card-body">
+              <div id="previewCarrierSummary" class="row"></div>
+            </div>
+          </div>
+
+          <!-- Shop Summary -->
+          <div class="card mb-3">
+            <div class="card-header bg-info text-white">
+              <strong>แยกตามร้าน</strong>
+            </div>
+            <div class="card-body">
+              <div id="previewShopSummary" class="row"></div>
+            </div>
+          </div>
+
+          <div class="alert alert-warning">
+            <strong>⚠️ คำเตือน:</strong>
+            <ul class="mb-0">
+              <li>Batch จะถูก <strong>Lock</strong> ทันทีหลังสร้าง</li>
+              <li>ออเดอร์ที่อยู่ใน Batch นี้จะไม่สามารถแก้ไขได้</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ยกเลิก</button>
+        <button type="button" class="btn btn-warning" id="btnConfirmQuickCreate" onclick="confirmQuickCreate()">
+          <span id="btnQuickCreateText">ยืนยันสร้าง Batch</span>
+          <span id="btnQuickCreateSpinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentQuickCreatePlatform = null;
+
+function loadQuickCreateData(platform) {
+  currentQuickCreatePlatform = platform;
+  
+  // Show modal
+  const modal = new bootstrap.Modal(document.getElementById('quickCreateModal'));
+  modal.show();
+  
+  // Reset states
+  $('#quickCreateLoading').removeClass('d-none');
+  $('#quickCreateError').addClass('d-none');
+  $('#quickCreateContent').addClass('d-none');
+  $('#btnConfirmQuickCreate').prop('disabled', false);
+  
+  // Fetch preview data
+  $.ajax({
+    url: `/batch/next-run/${platform}`,
+    method: 'GET',
+    success: function(data) {
+      if (data.success) {
+        // Populate preview
+        $('#previewBatchId').text(data.batch_id_preview);
+        $('#previewPlatform').text(data.platform);
+        $('#previewRun').text('R' + data.next_run);
+        $('#previewTotalOrders').text(data.total_orders);
+        
+        // Carrier summary
+        const carrierHtml = Object.entries(data.carrier_summary).map(([carrier, count]) => {
+          const badgeClass = {
+            'SPX': 'danger',
+            'Flash': 'warning text-dark',
+            'LEX': 'primary',
+            'J&T': 'success'
+          }[carrier] || 'secondary';
+          
+          return `
+            <div class="col-md-3 col-6 mb-2">
+              <div class="text-center p-2 border rounded">
+                <h4 class="text-${badgeClass.split(' ')[0]}">${count}</h4>
+                <span class="badge bg-${badgeClass}">${carrier}</span>
+              </div>
+            </div>
+          `;
+        }).join('');
+        $('#previewCarrierSummary').html(carrierHtml);
+        
+        // Shop summary
+        const shopHtml = Object.entries(data.shop_summary).map(([shop, count]) => `
+          <div class="col-md-4 col-6 mb-2">
+            <div class="card border-info">
+              <div class="card-body text-center p-2">
+                <h5 class="text-info mb-0">${count}</h5>
+                <small>${shop}</small>
+              </div>
+            </div>
+          </div>
+        `).join('');
+        $('#previewShopSummary').html(shopHtml);
+        
+        // Show content
+        $('#quickCreateLoading').addClass('d-none');
+        $('#quickCreateContent').removeClass('d-none');
+      } else {
+        showQuickCreateError(data.message || 'เกิดข้อผิดพลาด');
+      }
+    },
+    error: function(xhr) {
+      const msg = xhr.responseJSON?.message || 'ไม่สามารถโหลดข้อมูลได้';
+      showQuickCreateError(msg);
+    }
+  });
+}
+
+function showQuickCreateError(message) {
+  $('#quickCreateLoading').addClass('d-none');
+  $('#quickCreateContent').addClass('d-none');
+  $('#quickCreateError').text(message).removeClass('d-none');
+  $('#btnConfirmQuickCreate').prop('disabled', true);
+}
+
+function confirmQuickCreate() {
+  if (!currentQuickCreatePlatform) return;
+  
+  // Disable button and show spinner
+  const $btn = $('#btnConfirmQuickCreate');
+  $btn.prop('disabled', true);
+  $('#btnQuickCreateText').addClass('d-none');
+  $('#btnQuickCreateSpinner').removeClass('d-none');
+  
+  // Create batch
+  $.ajax({
+    url: `/batch/quick-create/${currentQuickCreatePlatform}`,
+    method: 'POST',
+    success: function(data) {
+      if (data.success) {
+        // Redirect to batch detail
+        window.location.href = data.redirect_url;
+      } else {
+        showQuickCreateError(data.message || 'ไม่สามารถสร้าง Batch ได้');
+        // Re-enable button
+        $btn.prop('disabled', false);
+        $('#btnQuickCreateText').removeClass('d-none');
+        $('#btnQuickCreateSpinner').addClass('d-none');
+      }
+    },
+    error: function(xhr) {
+      const msg = xhr.responseJSON?.message || 'เกิดข้อผิดพลาดในการสร้าง Batch';
+      showQuickCreateError(msg);
+      // Re-enable button
+      $btn.prop('disabled', false);
+      $('#btnQuickCreateText').removeClass('d-none');
+      $('#btnQuickCreateSpinner').addClass('d-none');
+    }
+  });
+}
+
+$(document).ready(function() {
+  // Initialize DataTable (simple, no filters)
+  $('#batchTable').DataTable({
+    order: [[3, 'desc']], // Sort by date descending
+    pageLength: 25,
+    language: {
+      url: '//cdn.datatables.net/plug-ins/1.13.8/i18n/th.json'
+    }
+  });
+});
+</script>
+{% endblock %}

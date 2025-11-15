@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+  <div class="row justify-content-center">
+    <div class="col-lg-8">
+      <div class="card">
+        <div class="card-header bg-primary text-white">
+          <h4 class="mb-0"><i data-lucide="plus-circle"></i> สร้าง Batch ใหม่</h4>
+        </div>
+        <div class="card-body">
+
+          {% if not platform %}
+          <!-- Step 1: Select Platform -->
+          <h5 class="mb-3">เลือก Platform</h5>
+          <div class="row">
+            {% for plat in platforms %}
+            <div class="col-md-4 mb-3">
+              <a href="{{ url_for('batch_create', platform=plat) }}" class="text-decoration-none">
+                <div class="card border-primary h-100 hover-shadow">
+                  <div class="card-body text-center">
+                    <h3 class="text-primary">
+                      {% if plat == 'Shopee' %}🛒
+                      {% elif plat == 'Lazada' %}🛍️
+                      {% elif plat == 'TikTok' %}🎵
+                      {% endif %}
+                    </h3>
+                    <h5>{{ plat }}</h5>
+                    <small class="text-muted">คลิกเพื่อดูตัวอย่าง</small>
+                  </div>
+                </div>
+              </a>
+            </div>
+            {% endfor %}
+          </div>
+
+          {% elif preview %}
+          <!-- Step 2: Preview and Confirm -->
+          <h5 class="mb-3">ตัวอย่าง Batch สำหรับ {{ platform }}</h5>
+
+          <div class="alert alert-info">
+            <h6>สรุปออเดอร์ที่จะถูกรวมเข้า Batch:</h6>
+            <ul>
+              <li><strong>จำนวนออเดอร์ทั้งหมด:</strong> {{ preview.total_orders }}</li>
+            </ul>
+          </div>
+
+          <!-- Carrier Summary -->
+          <div class="card mb-3">
+            <div class="card-header bg-secondary text-white">
+              <strong>แยกตามขนส่ง (Carrier)</strong>
+            </div>
+            <div class="card-body">
+              <table class="table table-sm">
+                <thead>
+                  <tr>
+                    <th>Carrier</th>
+                    <th class="text-end">จำนวนออเดอร์</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for carrier, count in preview.carrier_summary.items() %}
+                  <tr>
+                    <td>
+                      {% if carrier == 'SPX' %}<span class="badge bg-danger">SPX</span>
+                      {% elif carrier == 'Flash' %}<span class="badge bg-warning text-dark">Flash</span>
+                      {% elif carrier == 'LEX' %}<span class="badge bg-primary">LEX</span>
+                      {% elif carrier == 'J&T' %}<span class="badge bg-success">J&T</span>
+                      {% else %}<span class="badge bg-secondary">{{ carrier }}</span>
+                      {% endif %}
+                    </td>
+                    <td class="text-end"><strong>{{ count }}</strong></td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Shop Summary -->
+          <div class="card mb-3">
+            <div class="card-header bg-info text-white">
+              <strong>แยกตามร้าน (Shop)</strong>
+            </div>
+            <div class="card-body">
+              <table class="table table-sm">
+                <thead>
+                  <tr>
+                    <th>ชื่อร้าน</th>
+                    <th class="text-end">จำนวนออเดอร์</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for shop, count in preview.shop_summary.items() %}
+                  <tr>
+                    <td>{{ shop }}</td>
+                    <td class="text-end"><strong>{{ count }}</strong></td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Confirmation Form -->
+          <div class="card border-success">
+            <div class="card-header bg-success text-white">
+              <strong>ยืนยันสร้าง Batch</strong>
+            </div>
+            <div class="card-body">
+              <form method="POST" action="{{ url_for('batch_create') }}" id="createBatchForm">
+                <input type="hidden" name="platform" value="{{ platform }}">
+
+                <div class="mb-3">
+                  <label for="run_no" class="form-label">เลือกรอบ (Run):</label>
+                  <select name="run_no" id="run_no" class="form-select" required>
+                    <option value="1">Run 1</option>
+                    <option value="2">Run 2</option>
+                    <option value="3">Run 3</option>
+                    <option value="4">Custom Run 4</option>
+                  </select>
+                  <small class="form-text text-muted">
+                    Batch ID จะถูกสร้างเป็น: <strong id="batchIdPreview"></strong>
+                  </small>
+                </div>
+
+                <div class="alert alert-warning">
+                  <strong>⚠️ คำเตือน:</strong>
+                  <ul class="mb-0">
+                    <li>Batch จะถูก <strong>Lock</strong> ทันทีหลังสร้าง</li>
+                    <li>ออเดอร์ที่อยู่ใน Batch นี้จะไม่สามารถแก้ไขได้</li>
+                    <li>ออเดอร์ใหม่จะไม่เข้า Batch นี้อีก</li>
+                  </ul>
+                </div>
+
+                <div class="d-flex justify-content-between">
+                  <a href="{{ url_for('batch_create') }}" class="btn btn-secondary">
+                    <i data-lucide="arrow-left"></i> เลือก Platform ใหม่
+                  </a>
+                  <button type="submit" class="btn btn-success btn-lg">
+                    <i data-lucide="check-circle"></i> ยืนยันสร้าง Batch
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          {% else %}
+          <!-- No pending orders -->
+          <div class="alert alert-warning">
+            <h5>⚠️ ไม่มีออเดอร์รอสร้าง Batch</h5>
+            <p>ไม่พบออเดอร์ที่มีสถานะ "pending_batch" สำหรับ {{ platform }}</p>
+            <a href="{{ url_for('batch_create') }}" class="btn btn-secondary">
+              <i data-lucide="arrow-left"></i> กลับไปเลือก Platform ใหม่
+            </a>
+          </div>
+          {% endif %}
+
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.hover-shadow:hover {
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+  transform: translateY(-2px);
+  transition: all 0.3s;
+}
+</style>
+
+<script>
+// Update Batch ID preview
+$(document).ready(function() {
+  function updateBatchIdPreview() {
+    var platform = '{{ platform }}';
+    var runNo = $('#run_no').val();
+    var today = new Date();
+    var dateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
+
+    var prefix = {
+      'Shopee': 'SH',
+      'Lazada': 'LA',
+      'TikTok': 'TT'
+    }[platform] || 'OT';
+
+    var batchId = prefix + '-' + dateStr + '-R' + runNo;
+    $('#batchIdPreview').text(batchId);
+  }
+
+  $('#run_no').on('change', updateBatchIdPreview);
+  updateBatchIdPreview();
+});
+</script>
+{% endblock %}

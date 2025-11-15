@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ใบงานคลัง - Warehouse Job Sheet</title>
+  <!-- Preconnect for faster font loading -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  
+  <!-- IBM Plex Sans Thai Font - Optimized for print -->
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    /* Lucide Icons inline with text */
+    .lucide { 
+      width: 1em; 
+      height: 1em; 
+      vertical-align: -0.125em;
+      display: inline-block;
+    }
+  </style>
+
+  <style>
+    /* ==================== ROOT VARIABLES ==================== */
+    :root {
+      --primary-color: #2563eb;
+      --success-color: #16a34a;
+      --warning-color: #f59e0b;
+      --danger-color: #dc2626;
+      --gray-50: #f9fafb;
+      --gray-100: #f3f4f6;
+      --gray-200: #e5e7eb;
+      --gray-300: #d1d5db;
+      --gray-400: #9ca3af;
+      --gray-500: #6b7280;
+      --gray-600: #4b5563;
+      --gray-700: #374151;
+      --gray-800: #1f2937;
+      --gray-900: #111827;
+      --font-sans: 'IBM Plex Sans Thai', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    /* ==================== SCREEN STYLES ==================== */
+    @media screen {
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: var(--font-sans);
+        background: var(--gray-50);
+        color: var(--gray-900);
+        line-height: 1.6;
+      }
+
+      /* Control Panel */
+      .control-panel {
+        background: white;
+        border-bottom: 1px solid var(--gray-200);
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+      }
+
+      .control-panel .btn {
+        border-radius: 8px;
+        font-weight: 500;
+        padding: 0.625rem 1.25rem !important;
+        font-size: 0.875rem;
+        transition: all 0.2s ease;
+        border: none;
+      }
+
+      .control-panel .btn-primary {
+        background: var(--primary-color);
+        box-shadow: 0 1px 2px rgba(37, 99, 235, 0.2);
+      }
+
+      .control-panel .btn-primary:hover {
+        background: #1d4ed8;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);
+      }
+
+      .control-panel .btn-danger {
+        background: var(--danger-color);
+        box-shadow: 0 1px 2px rgba(220, 38, 38, 0.2);
+      }
+
+      .control-panel .btn-danger:hover {
+        background: #b91c1c;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 6px rgba(220, 38, 38, 0.2);
+      }
+
+      .control-panel .btn-outline-secondary {
+        border: 1.5px solid var(--gray-300);
+        background: white;
+        color: var(--gray-700);
+      }
+
+      .control-panel .btn-outline-secondary:hover {
+        background: var(--gray-50);
+        border-color: var(--gray-400);
+      }
+
+      /* Alert Boxes */
+      .alert-modern {
+        border-radius: 12px;
+        border: none;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1.5rem;
+        border-left: 4px solid;
+        background: white;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+      }
+
+      .alert-modern.alert-info {
+        border-left-color: var(--primary-color);
+        background: #eff6ff;
+      }
+
+      .alert-modern.alert-success {
+        border-left-color: var(--success-color);
+        background: #f0fdf4;
+      }
+
+      /* Filter Form */
+      .filter-form {
+        background: white;
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+      }
+
+      .filter-form .form-label {
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--gray-700);
+        margin-bottom: 0.5rem;
+      }
+
+      .filter-form .form-select,
+      .filter-form .form-control {
+        border-radius: 8px;
+        border: 1.5px solid var(--gray-300);
+        padding: 0.625rem 0.875rem;
+        font-size: 0.875rem;
+        transition: all 0.2s ease;
+      }
+
+      .filter-form .form-select:focus,
+      .filter-form .form-control:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        outline: none;
+      }
+
+      /* Badge */
+      .badge-modern {
+        border-radius: 6px;
+        padding: 0.375rem 0.75rem;
+        font-weight: 500;
+        font-size: 0.875rem;
+      }
+
+      /* Dropdown Menu */
+      .dropdown-menu {
+        border-radius: 8px;
+        border: 1px solid var(--gray-200);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        padding: 0.5rem;
+      }
+
+      /* Print Container Preview */
+      .print-container {
+        max-width: 210mm;
+        margin: 0 auto;
+        background: white;
+        padding: 20mm;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.05);
+        border-radius: 8px;
+        min-height: 297mm;
+      }
+    }
+
+    /* ==================== PRINT STYLES ==================== */
+    @media print {
+      @page {
+        size: A4 portrait;
+        margin: 8mm 8mm;
+      }
+
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        page-break-after: avoid !important;
+        page-break-before: avoid !important;
+        page-break-inside: avoid !important;
+      }
+
+      html, body {
+        height: auto !important;
+        overflow: hidden !important;
+        max-height: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+
+      body {
+        font-family: var(--font-sans);
+        font-size: 7pt;
+        line-height: 1.2;
+        color: var(--gray-900);
+      }
+
+      .d-print-none {
+        display: none !important;
+      }
+
+      .print-container {
+        max-width: 100%;
+        margin: 0;
+        padding: 0;
+        box-shadow: none;
+        border-radius: 0;
+        max-height: 100% !important;
+        overflow: hidden !important;
+      }
+
+      /* Header Styles */
+      .print-header {
+        border-bottom: 2px solid var(--gray-900);
+        padding-bottom: 6px;
+        margin-bottom: 10px;
+      }
+
+      .company-name {
+        font-size: 14pt;
+        font-weight: 700;
+        color: var(--gray-900);
+        margin-bottom: 2px;
+      }
+
+      .company-subtitle {
+        font-size: 9pt;
+        color: var(--gray-600);
+      }
+
+      .document-title {
+        font-size: 12pt;
+        font-weight: 700;
+        text-align: center;
+        margin: 10px 0 8px 0;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      /* Summary Box */
+      .summary-box {
+        border: 1.5px solid var(--gray-300);
+        border-radius: 4px;
+        padding: 8px;
+        margin-bottom: 10px;
+        background: var(--gray-50);
+      }
+
+      .summary-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 3px 0;
+        font-size: 7.5pt;
+      }
+
+      .summary-label {
+        font-weight: 600;
+        color: var(--gray-700);
+      }
+
+      .summary-value {
+        font-weight: 600;
+        color: var(--gray-900);
+      }
+
+      /* Table Styles */
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 10px;
+        font-size: 6.5pt;
+        page-break-inside: auto;
+      }
+
+      table th {
+        background: var(--gray-800);
+        color: white;
+        padding: 4px 3px;
+        text-align: left;
+        font-weight: 600;
+        font-size: 6.5pt;
+        border: 0.5px solid var(--gray-700);
+      }
+
+      table td {
+        padding: 3px 3px;
+        border: 0.5px solid var(--gray-300);
+        vertical-align: middle;
+      }
+
+      table tbody tr {
+        page-break-inside: avoid !important;
+      }
+
+      table tbody tr:nth-child(even) {
+        background: var(--gray-50);
+      }
+
+      /* Signature Section */
+      .signature-section {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .signature-box {
+        border: 1.5px solid var(--gray-300);
+        border-radius: 4px;
+        padding: 8px;
+        min-height: 50px;
+      }
+
+      .signature-label {
+        font-weight: 600;
+        font-size: 7.5pt;
+        margin-bottom: 20px;
+      }
+
+      .signature-line {
+        border-top: 1px solid var(--gray-400);
+        padding-top: 3px;
+        text-align: center;
+        font-size: 6pt;
+        color: var(--gray-600);
+      }
+
+      /* Carrier Badges */
+      .badge-carrier {
+        padding: 2px 4px;
+        border-radius: 3px;
+        font-weight: 600;
+        font-size: 6pt;
+        display: inline-block;
+      }
+
+      .head-badge-carrier{
+        font-size: 14pt;
+      }
+
+      .badge-spx {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+
+      .badge-flash {
+        background: #fef3c7;
+        color: #92400e;
+      }
+
+      .badge-lex {
+        background: #dbeafe;
+        color: #1e40af;
+      }
+
+      .badge-jt {
+        background: #d1fae5;
+        color: #065f46;
+      }
+
+      .badge-other {
+        background: #f3f4f6;
+        color: #374151;
+      }
+
+      /* Print Meta */
+      .print-meta {
+        font-size: 6pt;
+        color: var(--gray-500);
+        margin-top: 8px;
+        padding-top: 6px;
+        border-top: 1px solid var(--gray-300);
+      }
+    }
+
+    /* ==================== COMMON STYLES ==================== */
+    .text-center { text-align: center; }
+    .text-end { text-align: right; }
+    .fw-bold { font-weight: 600; }
+  </style>
+</head>
+<body>
+
+<!-- Preview Mode Controls -->
+{% if not official_print %}
+<div class="control-panel d-print-none">
+  <div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div class="d-flex align-items-center gap-3">
+        <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">
+          <i data-lucide="arrow-left"></i> กลับหน้าหลัก
+        </a>
+        <h4 class="mb-0" style="font-weight: 600; color: var(--gray-900);">
+          <i data-lucide="file-text"></i> ใบงานคลัง (Warehouse Job Sheet)
+        </h4>
+      </div>
+      <div class="d-flex gap-2">
+        <form method="post" action="{{ url_for('print_warehouse_commit') }}" class="d-inline" id="printForm">
+          <input type="hidden" name="platform" value="{{ platform_sel or '' }}">
+          <input type="hidden" name="shop_id" value="{{ shop_sel or '' }}">
+          <input type="hidden" name="logistic" value="{{ logistic_sel or '' }}">
+          <input type="hidden" name="compact_carrier" value="{{ '1' if compact_carrier else '0' }}">
+          {% if CURRENT_USER and CURRENT_USER.role == 'admin' %}
+            <label class="me-2" style="font-size: 0.875rem;">
+              <input type="checkbox" name="override" value="1"> อนุญาตพิมพ์ซ้ำ (แอดมิน)
+            </label>
+          {% endif %}
+          <button class="btn btn-danger">
+            <i data-lucide="lock"></i> พิมพ์และล็อกงาน
+          </button>
+        </form>
+        <a class="btn btn-outline-secondary" href="{{ url_for('print_warehouse', platform=platform_sel, shop_id=shop_sel, logistic=logistic_sel) }}">
+          <i data-lucide="refresh-cw"></i> รีเฟรช
+        </a>
+        <button class="btn btn-primary" onclick="window.print()">
+          <i data-lucide="printer"></i> พิมพ์ตัวอย่าง
+        </button>
+      </div>
+    </div>
+
+    <div class="alert-modern alert-info">
+      <i data-lucide="info"></i>
+      <strong> โหมดตัวอย่าง (Preview Mode)</strong> — จะไม่ล็อกงานจนกว่าจะกด "พิมพ์และล็อกงาน"
+    </div>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <!-- Filter Form -->
+    <div class="filter-form">
+      <form class="row g-3" method="get" action="{{ url_for('print_warehouse') }}" id="filterForm">
+        <div class="col-md-2">
+          <label class="form-label">แพลตฟอร์ม</label>
+          <select class="form-select" name="platform">
+            <option value="">ทั้งหมด</option>
+            {% for p in ["Shopee","TikTok","Lazada","อื่นๆ"] %}
+              <option value="{{p}}" {% if platform_sel==p %}selected{% endif %}>{{p}}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">ชื่อร้าน</label>
+          <select class="form-select" name="shop_id">
+            <option value="">ทั้งหมด</option>
+            {% for s in shops %}
+              <option value="{{ s.id }}" {% if shop_sel and shop_sel|int==s.id %}selected{% endif %}>
+                {{ s.platform }} • {{ s.name }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">ประเภทขนส่ง</label>
+          <select class="form-select" name="logistic">
+            <option value="">ทั้งหมด</option>
+            {% for lg in logistics %}
+              <option value="{{ lg }}" {% if logistic_sel==lg %}selected{% endif %}>{{ lg }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">แสดงคอลัมน์</label>
+          <div class="dropdown">
+            <button class="btn btn-outline-secondary dropdown-toggle w-100" type="button" id="columnDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+              <i data-lucide="columns"></i> เลือกคอลัมน์
+            </button>
+            <ul class="dropdown-menu" aria-labelledby="columnDropdown" style="min-width: 250px;" onclick="event.stopPropagation();">
+              <li><div class="form-check">
+                <input class="form-check-input column-toggle" type="checkbox" value="col_no" id="col_no" checked>
+                <label class="form-check-label" for="col_no">1. #</label>
+              </div></li>
+              <li><div class="form-check">
+                <input class="form-check-input column-toggle" type="checkbox" value="col_order_id" id="col_order_id" checked>
+                <label class="form-check-label" for="col_order_id">2. เลขออเดอร์</label>
+              </div></li>
+              <li><div class="form-check">
+                <input class="form-check-input column-toggle" type="checkbox" value="col_platform" id="col_platform" checked>
+                <label class="form-check-label" for="col_platform">3. แพลตฟอร์ม</label>
+              </div></li>
+              <li><div class="form-check">
+                <input class="form-check-input column-toggle" type="checkbox" value="col_shop" id="col_shop" checked>
+                <label class="form-check-label" for="col_shop">4. ร้าน</label>
+              </div></li>
+              <li><div class="form-check">
+                <input class="form-check-input column-toggle" type="checkbox" value="col_sku" id="col_sku" checked>
+                <label class="form-check-label" for="col_sku">5. SKU</label>
+              </div></li>
+              <li><div class="form-check">
+                <input class="form-check-input column-toggle" type="checkbox" value="col_product" id="col_product" checked>
+                <label class="form-check-label" for="col_product">6. สินค้า</label>
+              </div></li>
+              <li><div class="form-check">
+                <input class="form-check-input column-toggle" type="checkbox" value="col_qty" id="col_qty" checked>
+                <label class="form-check-label" for="col_qty">7. Qty</label>
+              </div></li>
+              <li><div class="form-check">
+                <input class="form-check-input column-toggle" type="checkbox" value="col_carrier" id="col_carrier" checked>
+                <label class="form-check-label" for="col_carrier">8. ขนส่ง</label>
+              </div></li>
+              <li><div class="form-check">
+                <input class="form-check-input column-toggle" type="checkbox" value="col_accepted_by" id="col_accepted_by">
+                <label class="form-check-label" for="col_accepted_by">9. ผู้กดรับ</label>
+              </div></li>
+              <li><div class="form-check">
+                <input class="form-check-input column-toggle" type="checkbox" value="col_print_count" id="col_print_count">
+                <label class="form-check-label" for="col_print_count">10. พิมพ์แล้ว (ครั้ง)</label>
+              </div></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><div class="form-check">
+                <input class="form-check-input" type="checkbox" name="compact_carrier" value="1" id="compactCarrierDropdown" {% if compact_carrier %}checked{% endif %}>
+                <label class="form-check-label" for="compactCarrierDropdown">ขนส่งแบบย่อ</label>
+              </div></li>
+            </ul>
+          </div>
+        </div>
+        <div class="col-md-4 d-flex align-items-end gap-2">
+          <button class="btn btn-primary flex-grow-1">
+            <i data-lucide="search"></i> ดูรายงาน
+          </button>
+          <a class="btn btn-outline-secondary" href="{{ url_for('print_warehouse') }}">
+            <i data-lucide="x-circle"></i> ล้าง
+          </a>
+        </div>
+      </form>
+
+      <!-- Summary Badges -->
+      <div class="mt-3 d-flex gap-2 flex-wrap">
+        <span class="badge-modern bg-primary text-white">
+          <i data-lucide="package"></i> ออเดอร์: {{ count_orders }}
+        </span>
+        <span class="badge-modern bg-secondary text-white">
+          <i data-lucide="layers"></i> จำนวนชิ้น: {{ total_qty }}
+        </span>
+        {% if platform_sel %}
+        <span class="badge-modern" style="background: var(--gray-200); color: var(--gray-700);">
+          <i data-lucide="store"></i> {{ platform_sel }}
+        </span>
+        {% endif %}
+        {% if logistic_sel %}
+        <span class="badge-modern" style="background: var(--gray-200); color: var(--gray-700);">
+          <i data-lucide="truck"></i> {{ logistic_sel }}
+        </span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="d-print-none" style="padding: 1rem;">
+  <div class="alert-modern alert-success">
+    <i data-lucide="check-circle"></i>
+    <strong>Official Print</strong> • ผู้ออก: {{ printed_meta.by if printed_meta else '-' }} • เวลา: {{ printed_meta.at|thai_be if printed_meta else '-' }}
+    {% if printed_meta and printed_meta.override %}
+      <span class="badge bg-warning ms-2">Reprint (Admin)</span>
+    {% endif %}
+  </div>
+  <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">
+    <i data-lucide="arrow-left"></i> กลับหน้าหลัก
+  </a>
+</div>
+{% endif %}
+
+<!-- Print Container -->
+<div class="print-container">
+  <!-- Header -->
+  <div class="print-header">
+    <div class="d-flex justify-content-between align-items-start">
+      <div>
+        <div class="company-name">บริษัท วีนิก กรุ๊ป จำกัด</div>
+        <div class="company-subtitle">VNIX GROUP CO., LTD.</div>
+      </div>
+      <div class="text-end" style="font-size: 8pt;">
+        <div><strong>วันที่:</strong> {{ now_thai()|thai_be }}</div>
+        <div><strong>ผู้พิมพ์:</strong> {{ CURRENT_USER.username if CURRENT_USER else '-' }}</div>
+        {% if print_count_display %}
+        <div style="color: var(--danger-color); font-weight: 600;">
+          <strong>ครั้งที่:</strong> {{ print_count_display }}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Document Title -->
+  <div class="document-title">ใบงานคลัง (Warehouse Job Sheet)</div>
+
+  <!-- Summary Box -->
+  <div class="summary-box">
+    <div class="summary-row">
+      <span class="summary-label">จำนวนออเดอร์ทั้งหมด:</span>
+      <span class="summary-value">{{ count_orders }} ออเดอร์</span>
+    </div>
+    <div class="summary-row">
+      <span class="summary-label">จำนวนชิ้นรวม:</span>
+      <span class="summary-value">{{ total_qty }} ชิ้น</span>
+    </div>
+    {% if carrier_summary %}
+    <div class="summary-row" style="padding-top: 6px; margin-top: 6px; border-top: 1px solid var(--gray-200);">
+      <span class="summary-label">แยกตามขนส่ง:</span>
+      <span>
+        {% for carrier, count in carrier_summary.items() %}
+          {% if count > 0 %}
+            <span class="badge-carrier head-badge-carrier badge-{% if carrier == 'SPX' %}spx{% elif carrier == 'Flash' %}flash{% elif carrier == 'LEX' %}lex{% elif carrier == 'J&T' %}jt{% else %}other{% endif %}">
+              {{ carrier }}: {{ count }}
+            </span>
+          {% endif %}
+        {% endfor %}
+      </span>
+    </div>
+    {% endif %}
+    {% if shop_summary %}
+    <div class="summary-row">
+      <span class="summary-label">แยกตามร้าน:</span>
+      <span style="font-size: 7pt;">
+        {% for shop, count in shop_summary.items() %}
+          {{ shop }}: {{ count }}{% if not loop.last %} | {% endif %}
+        {% endfor %}
+      </span>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Orders Table -->
+  <table class="table-print">
+    <thead>
+      <tr>
+        <th class="col_no" style="width: 3%;">#</th>
+        <th class="col_order_id" style="width: 13%;">เลขออเดอร์</th>
+        <th class="col_platform" style="width: 8%;">แพลตฟอร์ม</th>
+        <th class="col_shop" style="width: 12%;">ร้าน</th>
+        <th class="col_sku" style="width: 12%;">SKU</th>
+        <th class="col_product" style="width: 20%;">สินค้า</th>
+        <th class="col_qty" style="width: 5%;" class="text-center">Qty</th>
+        <th class="col_carrier" style="width: 12%;">ขนส่ง</th>
+        <th class="col_accepted_by" style="width: 10%;">ผู้กดรับ</th>
+        <th class="col_print_count" style="width: 5%;" class="text-center">พิมพ์</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+        <tr>
+          <td class="col_no text-center">{{ loop.index }}</td>
+          <td class="col_order_id">
+            {% if r.show_order_id %}
+              <strong style="font-size: 7.5pt;">{{ r.order_id_display }}</strong>
+            {% endif %}
+          </td>
+          <td class="col_platform">{{ r.platform }}</td>
+          <td class="col_shop">{{ r.shop }}</td>
+          <td class="col_sku"><code style="font-size: 7pt;">{{ r.sku }}</code></td>
+          <td class="col_product">{{ r.model or r.product_name or '-' }}</td>
+          <td class="col_qty text-center"><strong>{{ r.qty }}</strong></td>
+          <td class="col_carrier">
+            {% set c = r.carrier or r.logistic or '-' %}
+            {% if compact_carrier %}
+              {% set c_compact = c.replace('Standard Delivery - ส่งธรรมดาในประเทศ-', '').replace('Standard Delivery-', '').replace('Standard Delivery - ', '').strip() %}
+              <span class="badge-carrier badge-{% if 'SPX' in c.upper() %}spx{% elif 'FLASH' in c.upper() %}flash{% elif 'LEX' in c.upper() %}lex{% elif 'J&T' in c.upper() or 'JNT' in c.upper() %}jt{% else %}other{% endif %}">
+                {{ c_compact }}
+              </span>
+            {% else %}
+              <span class="badge-carrier badge-{% if 'SPX' in c.upper() %}spx{% elif 'FLASH' in c.upper() %}flash{% elif 'LEX' in c.upper() %}lex{% elif 'J&T' in c.upper() or 'JNT' in c.upper() %}jt{% else %}other{% endif %}">
+                {{ c }}
+              </span>
+            {% endif %}
+          </td>
+          <td class="col_accepted_by" style="font-size: 6.5pt;">{{ r.accepted_by or '-' }}</td>
+          <td class="col_print_count text-center" style="font-size: 6.5pt;">{{ r.printed_warehouse_count or 0 }}</td>
+        </tr>
+      {% endfor %}
+      {% if not rows %}
+        <tr>
+          <td colspan="10" class="text-center" style="padding: 20px; color: var(--gray-500);">
+            ไม่พบรายการ
+          </td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <!-- Signature Section -->
+  <div class="signature-section">
+    <div class="signature-box">
+      <div class="signature-label">ผู้รับงาน (คลัง)</div>
+      <div class="signature-line">
+        ชื่อ-นามสกุล / วันเวลา
+      </div>
+    </div>
+    <div class="signature-box">
+      <div class="signature-label">ผู้รับของ (ขนส่ง)</div>
+      <div class="signature-line">
+        ชื่อ-นามสกุล / วันเวลา / เบอร์โทร
+      </div>
+    </div>
+  </div>
+
+  <!-- Print Metadata -->
+  <div class="print-meta">
+    พิมพ์โดย: {{ CURRENT_USER.username if CURRENT_USER else 'System' }} |
+    {{ now_thai()|thai_be }} |
+    VNIX WMS Beta TEST
+  </div>
+</div>
+
+<!-- Page calculation and cleanup script -->
+<script>
+  // ลบ empty elements และ text nodes ว่างๆ (ปรับปรุงเพื่อไม่ให้ลบ Lucide Icons)
+  function cleanupEmptyElements() {
+    const walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_TEXT,
+      null,
+      false
+    );
+
+    const nodesToRemove = [];
+    let node;
+    while (node = walker.nextNode()) {
+      if (node.nodeValue.trim() === '') {
+        nodesToRemove.push(node);
+      }
+    }
+    nodesToRemove.forEach(n => n.remove());
+
+    // ป้องกันการลบ Lucide Icons (i, svg, และ child elements ของ svg)
+    const emptyElements = document.querySelectorAll('*:empty:not(input):not(br):not(hr):not(img):not(meta):not(link):not(i):not(svg):not(path):not(circle):not(line):not(polyline):not(polygon):not(rect):not(ellipse)');
+    emptyElements.forEach(el => {
+      // ตรวจสอบว่าไม่ใช่ child ของ SVG
+      if (el.tagName !== 'TD' && el.tagName !== 'TH' && !el.closest('svg') && !el.closest('[data-lucide]')) {
+        el.remove();
+      }
+    });
+
+    // ปิดการปรับ margin/padding อัตโนมัติ เพราะทำให้ layout พัง
+    // ถ้าต้องการปรับ ให้ทำใน CSS แทน
+    
+    /* 
+    document.querySelectorAll('*').forEach(el => {
+      // ข้าม elements ที่เกี่ยวกับ icons
+      if (el.closest('svg') || el.closest('[data-lucide]') || el.hasAttribute('data-lucide')) {
+        return;
+      }
+      
+      if (!el.classList.contains('print-container') &&
+          !el.classList.contains('summary-row') &&
+          !el.classList.contains('signature-box')) {
+        const computed = window.getComputedStyle(el);
+        if (parseInt(computed.marginBottom) > 5) {
+          el.style.marginBottom = '0';
+        }
+        if (parseInt(computed.paddingBottom) > 5) {
+          el.style.paddingBottom = '0';
+        }
+      }
+    });
+    */
+  }
+
+  // Run on page load
+  window.addEventListener('load', function() {
+    {% if official_print %}
+    // Official print mode - cleanup และพิมพ์ทันที
+    setTimeout(function() {
+      cleanupEmptyElements();
+      window.print();
+    }, 500);
+    {% endif %}
+  });
+
+  // Cleanup before print (เฉพาะตอนพิมพ์จริง)
+  window.addEventListener('beforeprint', function() {
+    cleanupEmptyElements();
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+  });
+
+  // Reset after print
+  window.addEventListener('afterprint', function() {
+    document.body.style.overflow = '';
+    document.documentElement.style.overflow = '';
+  });
+</script>
+
+<!-- Column visibility and compact carrier sync -->
+{% if not official_print %}
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    // Sync compact_carrier checkbox
+    const compactCheckbox = document.getElementById('compactCarrierDropdown');
+    const printForm = document.getElementById('printForm');
+    const hiddenInput = printForm.querySelector('input[name="compact_carrier"]');
+
+    if (compactCheckbox && hiddenInput) {
+      compactCheckbox.addEventListener('change', function() {
+        hiddenInput.value = this.checked ? '1' : '0';
+      });
+    }
+
+    // Column visibility toggle
+    const columnToggles = document.querySelectorAll('.column-toggle');
+    const table = document.querySelector('.table-print');
+
+    // Default hidden columns
+    const defaultHidden = ['col_accepted_by', 'col_print_count'];
+
+    // Initialize column visibility
+    function updateColumnVisibility() {
+      columnToggles.forEach(toggle => {
+        const colClass = toggle.value;
+        const isVisible = toggle.checked;
+
+        // Toggle header
+        const headers = table.querySelectorAll(`th.${colClass}`);
+        headers.forEach(h => h.style.display = isVisible ? '' : 'none');
+
+        // Toggle cells
+        const cells = table.querySelectorAll(`td.${colClass}`);
+        cells.forEach(c => c.style.display = isVisible ? '' : 'none');
+      });
+    }
+
+    // Set default visibility
+    columnToggles.forEach(toggle => {
+      if (defaultHidden.includes(toggle.value)) {
+        toggle.checked = false;
+      }
+    });
+    updateColumnVisibility();
+
+    // Listen to changes
+    columnToggles.forEach(toggle => {
+      toggle.addEventListener('change', updateColumnVisibility);
+    });
+
+    // Prevent dropdown from closing when clicking checkboxes
+    document.querySelector('.dropdown-menu').addEventListener('click', function(e) {
+      e.stopPropagation();
+    });
+  });
+</script>
+{% endif %}
+
+<!-- Auto Print Script -->
+{% if official_print %}
+<script>
+  window.addEventListener('load', function() {
+    setTimeout(function() {
+      window.print();
+    }, 500);
+  });
+</script>
+{% endif %}
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script>
+  // Initialize Lucide icons - ต้องรอให้โหลดเสร็จก่อน
+  (function initLucideIcons() {
+    if (typeof lucide !== 'undefined') {
+      try {
+        lucide.createIcons();
+        console.log('Lucide icons initialized successfully');
+      } catch (e) {
+        console.error('Error initializing Lucide icons:', e);
+      }
+    } else {
+      console.warn('Lucide library not loaded yet');
+    }
+  })();
+</script>
+</body>
+</html>

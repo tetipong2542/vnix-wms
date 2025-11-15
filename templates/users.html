@@ -1,0 +1,92 @@
+
+{% extends "base.html" %}
+{% block content %}
+<div class="container">
+  <div class="mb-4">
+    <h2 class="mb-0 fw-bold" style="color: var(--gray-900);">
+      <i data-lucide="users"></i> จัดการผู้ใช้งาน
+    </h2>
+    <p class="text-muted mt-2">เพิ่ม แก้ไข และลบผู้ใช้งานในระบบ</p>
+  </div>
+
+<div class="row g-3 align-items-start">
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">
+          <i data-lucide="user-plus"></i> เพิ่มผู้ใช้ใหม่
+        </h5>
+      </div>
+      <div class="card-body">
+        <form method="post" class="row g-3">
+          <input type="hidden" name="action" value="create">
+          <div class="col-12">
+            <label class="form-label">ชื่อผู้ใช้</label>
+            <input name="username" class="form-control" required>
+          </div>
+          <div class="col-12">
+            <label class="form-label">รหัสผ่าน</label>
+            <input name="password" type="password" class="form-control" required>
+          </div>
+          <div class="col-12">
+            <label class="form-label">บทบาท</label>
+            <select name="role" class="form-select">
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <button class="btn btn-primary w-100">
+              <i data-lucide="user-plus"></i> เพิ่มผู้ใช้
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-8">
+    <div class="card">
+      <div class="card-header bg-secondary text-white">
+        <h5 class="mb-0">
+          <i data-lucide="list"></i> รายการผู้ใช้งาน
+        </h5>
+      </div>
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle">
+            <thead class="table-light">
+              <tr>
+                <th>#</th>
+                <th>ชื่อผู้ใช้</th>
+                <th>บทบาท</th>
+                <th>สร้างเมื่อ</th>
+                <th style="width: 100px;">การจัดการ</th>
+              </tr>
+            </thead>
+        <tbody>
+        {% for u in users %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ u.username }}</td>
+            <td>{{ u.role }}</td>
+            <td>{{ u.created_at|thai_be }}</td>
+            <td>
+              <form method="post" onsubmit="return confirm('ยืนยันลบผู้ใช้ {{u.username}} ?')">
+                <input type="hidden" name="action" value="delete">
+                <input type="hidden" name="uid" value="{{u.id}}">
+                <button class="btn btn-sm btn-outline-danger">
+                  <i data-lucide="trash-2"></i> ลบ
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+{% endblock %}

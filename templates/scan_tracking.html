@@ -1,0 +1,377 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="row justify-content-center">
+    <div class="col-lg-10">
+      <div class="card shadow-sm">
+        <div class="card-header bg-warning text-dark">
+          <h4 class="mb-0">
+            <i data-lucide="truck" style="width: 24px; height: 24px;"></i>
+            สแกน Tracking เพื่อส่งมอบให้ขนส่ง
+          </h4>
+        </div>
+        <div class="card-body">
+          <!-- Scanner Area -->
+          <div id="scanner-container" class="mb-4">
+            <div id="qr-reader" style="width: 100%; max-width: 500px; margin: 0 auto;"></div>
+          </div>
+
+          <!-- Manual Input -->
+          <div class="mb-3">
+            <label for="tracking-input" class="form-label">หรือพิมพ์ Tracking Number ด้วยตนเอง:</label>
+            <div class="input-group">
+              <input
+                type="text"
+                class="form-control form-control-lg"
+                id="tracking-input"
+                placeholder="เช่น TH2309SPX000012345"
+                autocomplete="off"
+              >
+              <button class="btn btn-warning" type="button" onclick="submitTracking()">
+                <i data-lucide="search" style="width: 16px; height: 16px;"></i> ค้นหา
+              </button>
+            </div>
+          </div>
+
+          <!-- Order Info Display -->
+          <div id="order-info-container" style="display: none;">
+            <div class="card border-primary mb-3">
+              <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">ข้อมูลออเดอร์</h5>
+              </div>
+              <div class="card-body">
+                <div class="row">
+                  <div class="col-md-6">
+                    <p class="mb-2"><strong>Tracking:</strong> <span id="info-tracking" class="text-primary fs-5"></span></p>
+                    <p class="mb-2"><strong>Platform:</strong> <span id="info-platform"></span></p>
+                    <p class="mb-2"><strong>ร้าน:</strong> <span id="info-shop"></span></p>
+                    <p class="mb-0"><strong>Order ID:</strong> <span id="info-order-id"></span></p>
+                  </div>
+                  <div class="col-md-6">
+                    <p class="mb-2"><strong>Batch ID:</strong> <span id="info-batch-id"></span></p>
+                    <p class="mb-2"><strong>Carrier:</strong> <span id="info-carrier" class="badge bg-info"></span></p>
+                    <p class="mb-2"><strong>สถานะ:</strong> <span id="info-status-badge"></span></p>
+                    <p class="mb-0"><strong>จำนวนสินค้า:</strong> <span id="info-item-count"></span> รายการ</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Dispatch Actions -->
+            <div id="dispatch-actions" class="card border-success" style="display: none;">
+              <div class="card-header bg-success text-white">
+                <h5 class="mb-0">ยืนยันส่งมอบให้ขนส่ง</h5>
+              </div>
+              <div class="card-body">
+                <div class="alert alert-info">
+                  <p class="mb-0">
+                    <i data-lucide="info" style="width: 16px; height: 16px;"></i>
+                    กรุณาตรวจสอบข้อมูลให้ถูกต้องก่อนยืนยัน
+                  </p>
+                </div>
+                <div class="d-grid gap-2">
+                  <button class="btn btn-success btn-lg" onclick="confirmDispatch()">
+                    <i data-lucide="check-circle" style="width: 20px; height: 20px;"></i>
+                    ยืนยันส่งมอบให้ขนส่ง
+                  </button>
+                  <button class="btn btn-outline-secondary" onclick="resetTracking()">
+                    <i data-lucide="x-circle" style="width: 16px; height: 16px;"></i>
+                    ยกเลิก / สแกน Tracking ใหม่
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Already Dispatched Warning -->
+            <div id="already-dispatched" class="alert alert-warning" style="display: none;">
+              <h5 class="alert-heading">
+                <i data-lucide="alert-triangle" style="width: 20px; height: 20px;"></i>
+                ออเดอร์นี้ส่งไปแล้ว
+              </h5>
+              <p class="mb-0">ออเดอร์นี้ถูกส่งมอบให้ขนส่งไปแล้ว ไม่สามารถส่งซ้ำได้</p>
+            </div>
+
+            <!-- Not Ready Warning -->
+            <div id="not-ready" class="alert alert-danger" style="display: none;">
+              <h5 class="alert-heading">
+                <i data-lucide="alert-circle" style="width: 20px; height: 20px;"></i>
+                ออเดอร์ยังไม่พร้อมส่ง
+              </h5>
+              <p class="mb-0">ออเดอร์นี้ยังหยิบของไม่ครบ กรุณาไปหน้า "หยิบของ" เพื่อหยิบสินค้าให้ครบก่อน</p>
+              <hr>
+              <button class="btn btn-warning" onclick="window.location.href='{{ url_for('scan_sku') }}'">
+                <i data-lucide="package-search" style="width: 16px; height: 16px;"></i>
+                ไปหน้าหยิบของ
+              </button>
+            </div>
+
+            <div class="d-grid gap-2 mt-3">
+              <button class="btn btn-outline-secondary" onclick="resetTracking()">
+                <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
+                สแกน Tracking ใหม่
+              </button>
+            </div>
+          </div>
+
+          <!-- Success Message -->
+          <div id="success-container" style="display: none;">
+            <div class="alert alert-success">
+              <h5>✓ ส่งมอบให้ขนส่งเรียบร้อยแล้ว!</h5>
+              <hr>
+              <p class="mb-1"><strong>Tracking:</strong> <span id="success-tracking"></span></p>
+              <p class="mb-1"><strong>ผู้ส่ง:</strong> <span id="success-dispatched-by"></span></p>
+              <p class="mb-0"><strong>เวลา:</strong> <span id="success-dispatched-at"></span></p>
+            </div>
+            <div class="d-grid gap-2">
+              <button class="btn btn-success" onclick="resetTracking()">
+                <i data-lucide="scan" style="width: 16px; height: 16px;"></i>
+                สแกน Tracking ต่อไป
+              </button>
+              <button class="btn btn-outline-primary" onclick="window.location.href='{{ url_for('dashboard') }}'">
+                <i data-lucide="home" style="width: 16px; height: 16px;"></i>
+                กลับหน้าหลัก
+              </button>
+            </div>
+          </div>
+
+          <!-- Error Display -->
+          <div id="error-container" class="mt-4" style="display: none;">
+            <div class="alert alert-danger">
+              <h5>⚠ เกิดข้อผิดพลาด</h5>
+              <p id="error-message" class="mb-0"></p>
+            </div>
+            <button class="btn btn-outline-secondary" onclick="resetTracking()">
+              <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
+              ลองใหม่
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Instructions -->
+      <div class="card mt-4 shadow-sm">
+        <div class="card-header bg-light">
+          <h5 class="mb-0">
+            <i data-lucide="info" style="width: 20px; height: 20px;"></i>
+            วิธีใช้งาน
+          </h5>
+        </div>
+        <div class="card-body">
+          <ol class="mb-0">
+            <li>สแกน Tracking Number จากใบปะหน้าหรือใบงาน</li>
+            <li>ระบบจะแสดงข้อมูลออเดอร์และสถานะล่าสุด</li>
+            <li>ตรวจสอบว่าข้อมูลถูกต้องและพร้อมส่ง (Status: READY)</li>
+            <li>กดปุ่ม "ยืนยันส่งมอบให้ขนส่ง"</li>
+            <li>ระบบจะบันทึก Log ว่าคุณส่งมอบให้ขนส่งแล้ว</li>
+            <li><strong class="text-danger">หมายเหตุ:</strong> ถ้ายังหยิบของไม่ครบ จะไม่สามารถส่งได้</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- html5-qrcode Library -->
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+<script>
+let html5QrCode;
+let isProcessing = false;
+let currentTracking = null;
+
+// Initialize QR Scanner
+function initScanner() {
+  html5QrCode = new Html5Qrcode("qr-reader");
+
+  html5QrCode.start(
+    { facingMode: "environment" },
+    {
+      fps: 10,
+      qrbox: { width: 250, height: 250 }
+    },
+    onScanSuccess,
+    onScanError
+  ).catch(err => {
+    console.error("Cannot start scanner:", err);
+  });
+}
+
+function onScanSuccess(decodedText, decodedResult) {
+  if (isProcessing) return;
+  console.log("Scanned Tracking:", decodedText);
+  submitTracking(decodedText);
+}
+
+function onScanError(errorMessage) {
+  // Don't log scan errors
+}
+
+function submitTracking(tracking = null) {
+  if (isProcessing) return;
+  isProcessing = true;
+
+  if (!tracking) {
+    tracking = document.getElementById('tracking-input').value.trim();
+  }
+
+  if (!tracking) {
+    alert('กรุณาระบุ Tracking Number');
+    isProcessing = false;
+    return;
+  }
+
+  // Stop scanner
+  if (html5QrCode && html5QrCode.isScanning) {
+    html5QrCode.stop();
+  }
+
+  // Hide containers
+  hideAllContainers();
+
+  // Show loading
+  const scannerContainer = document.getElementById('scanner-container');
+  scannerContainer.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-warning" role="status"></div><p class="mt-2">กำลังค้นหา...</p></div>';
+
+  // Call API
+  fetch('/api/scan/tracking', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tracking: tracking })
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      currentTracking = data;
+      showOrderInfo(data);
+    } else {
+      showError(data.error);
+    }
+  })
+  .catch(err => {
+    showError('เกิดข้อผิดพลาด: ' + err.message);
+  })
+  .finally(() => {
+    isProcessing = false;
+  });
+}
+
+function showOrderInfo(data) {
+  document.getElementById('info-tracking').textContent = data.tracking;
+  document.getElementById('info-platform').textContent = data.platform;
+  document.getElementById('info-shop').textContent = data.shop;
+  document.getElementById('info-order-id').textContent = data.order_id;
+  document.getElementById('info-batch-id').textContent = data.batch_id || '-';
+  document.getElementById('info-carrier').textContent = data.carrier || '-';
+  document.getElementById('info-item-count').textContent = data.item_count;
+
+  // Status badge
+  const statusBadge = document.getElementById('info-status-badge');
+  if (data.status === 'dispatched') {
+    statusBadge.innerHTML = '<span class="badge bg-secondary">ส่งไปแล้ว</span>';
+    document.getElementById('already-dispatched').style.display = 'block';
+    document.getElementById('dispatch-actions').style.display = 'none';
+    document.getElementById('not-ready').style.display = 'none';
+  } else if (data.status === 'ready') {
+    statusBadge.innerHTML = '<span class="badge bg-success">พร้อมส่ง</span>';
+    document.getElementById('dispatch-actions').style.display = 'block';
+    document.getElementById('already-dispatched').style.display = 'none';
+    document.getElementById('not-ready').style.display = 'none';
+  } else {
+    statusBadge.innerHTML = '<span class="badge bg-danger">ยังไม่พร้อม</span>';
+    document.getElementById('not-ready').style.display = 'block';
+    document.getElementById('dispatch-actions').style.display = 'none';
+    document.getElementById('already-dispatched').style.display = 'none';
+  }
+
+  document.getElementById('order-info-container').style.display = 'block';
+  document.getElementById('scanner-container').style.display = 'none';
+
+  if (window.refreshIcons) window.refreshIcons();
+}
+
+function confirmDispatch() {
+  if (!currentTracking) {
+    alert('กรุณาสแกน Tracking ก่อน');
+    return;
+  }
+
+  if (!confirm('ยืนยันส่งมอบให้ขนส่ง?')) {
+    return;
+  }
+
+  isProcessing = true;
+
+  // Show loading
+  document.getElementById('order-info-container').innerHTML = '<div class="text-center py-4"><div class="spinner-border text-success"></div><p class="mt-2">กำลังบันทึก...</p></div>';
+
+  fetch('/api/confirm-dispatch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tracking: currentTracking.tracking })
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      showSuccess(data);
+    } else {
+      showError(data.error);
+    }
+  })
+  .catch(err => {
+    showError('เกิดข้อผิดพลาด: ' + err.message);
+  })
+  .finally(() => {
+    isProcessing = false;
+  });
+}
+
+function showSuccess(data) {
+  document.getElementById('success-tracking').textContent = data.tracking;
+  document.getElementById('success-dispatched-by').textContent = data.dispatched_by;
+  document.getElementById('success-dispatched-at').textContent = new Date(data.dispatched_at).toLocaleString('th-TH');
+
+  document.getElementById('success-container').style.display = 'block';
+  document.getElementById('order-info-container').style.display = 'none';
+
+  if (window.refreshIcons) window.refreshIcons();
+}
+
+function showError(message) {
+  document.getElementById('error-message').textContent = message;
+  document.getElementById('error-container').style.display = 'block';
+  document.getElementById('scanner-container').style.display = 'none';
+  document.getElementById('order-info-container').style.display = 'none';
+}
+
+function hideAllContainers() {
+  document.getElementById('order-info-container').style.display = 'none';
+  document.getElementById('success-container').style.display = 'none';
+  document.getElementById('error-container').style.display = 'none';
+}
+
+function resetTracking() {
+  hideAllContainers();
+  document.getElementById('scanner-container').style.display = 'block';
+  document.getElementById('scanner-container').innerHTML = '<div id="qr-reader" style="width: 100%; max-width: 500px; margin: 0 auto;"></div>';
+  document.getElementById('tracking-input').value = '';
+
+  currentTracking = null;
+  isProcessing = false;
+  initScanner();
+
+  if (window.refreshIcons) window.refreshIcons();
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+  initScanner();
+
+  document.getElementById('tracking-input').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+      submitTracking();
+    }
+  });
+});
+</script>
+{% endblock %}

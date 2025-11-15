@@ -1,0 +1,304 @@
+/* Dashboard Table Styles - Compact & Dense Layout */
+
+/* Base Table Styles */
+#ordersTable {
+  font-size: 0.8125rem; /* เล็กลง */
+  line-height: 1.3;
+  width: auto !important;
+  table-layout: auto !important;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* DataTables wrapper adjustments */
+.dataTables_wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+/* ให้ตารางใช้ width ตามเนื้อหา */
+.dataTables_wrapper table {
+  width: auto !important;
+  min-width: 100%;
+}
+
+/* KPI Badges */
+.kpi-order-ready {
+  filter: saturate(1.25) contrast(1.1);
+  border-width: 2px;
+}
+
+.kpi-order-ready:hover {
+  box-shadow: 0 0 0 .25rem rgba(25, 135, 84, .45);
+}
+
+.kpi-order-low {
+  filter: saturate(1.25) contrast(1.1);
+  border-width: 2px;
+}
+
+.kpi-order-low:hover {
+  box-shadow: 0 0 0 .25rem rgba(255, 193, 7, .45);
+}
+
+/* ซ่อนไอคอน sort เฉพาะคอลัมน์แรก (checkbox) */
+#ordersTable thead th:first-child:before,
+#ordersTable thead th:first-child:after {
+  display: none !important;
+}
+
+
+
+
+/* Sticky Header for Table - Adjusted for compact size */
+#ordersTable thead tr:first-child th {
+  position: sticky;
+  top: 0;
+  background: var(--gray-100);
+  z-index: 10;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border-bottom: 2px solid var(--gray-500);
+}
+
+/* Filter row - ไม่ใช้ sticky เพื่อไม่ให้ทับข้อมูล */
+#ordersTable thead tr.filters th {
+  position: relative; /* ไม่ sticky */
+  background: white;
+  border-bottom: 2px solid var(--gray-300);
+  z-index: 1;
+}
+
+/* ถ้าต้องการให้ filter row เป็น sticky ด้วย ให้ uncomment บรรทัดด้านล่าง */
+/*
+#ordersTable thead tr.filters th {
+  position: sticky;
+  top: 38px;
+  background: white;
+  z-index: 9;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+*/
+
+/* Table Column Widths - Auto-fit based on content */
+#ordersTable {
+  width: auto !important;
+}
+
+#ordersTable th,
+#ordersTable td {
+  white-space: nowrap;
+  padding: 0.4rem 0.35rem;
+}
+
+/* Checkbox column - Fixed minimal width */
+#ordersTable th:nth-child(1),
+#ordersTable td:nth-child(1) { 
+  width: 35px !important; 
+  min-width: 35px !important; 
+  max-width: 35px !important; 
+  padding: 0.4rem 0.25rem !important; 
+}
+
+/* Text alignment for number columns */
+#ordersTable th:nth-child(8),
+#ordersTable td:nth-child(8),
+#ordersTable th:nth-child(9),
+#ordersTable td:nth-child(9),
+#ordersTable th:nth-child(10),
+#ordersTable td:nth-child(10) {
+  text-align: center;
+}
+
+/* Product name column - Allow wrapping if too long */
+#ordersTable th:nth-child(7),
+#ordersTable td:nth-child(7) {
+  max-width: 250px;
+  white-space: normal;
+  word-wrap: break-word;
+  line-height: 1.3;
+}
+
+/* Smooth Scrolling */
+.table-responsive {
+  scroll-behavior: smooth;
+}
+
+/* Custom Scrollbar - Modern Style */
+.table-responsive::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.table-responsive::-webkit-scrollbar-track {
+  background: var(--gray-100);
+  border-radius: 5px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb {
+  background: var(--primary-400);
+  border-radius: 5px;
+  border: 2px solid var(--gray-100);
+}
+
+.table-responsive::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-600);
+}
+
+.table-responsive::-webkit-scrollbar-corner {
+  background: var(--gray-100);
+}
+
+/* Table Cell Padding - Compact with clear borders */
+#ordersTable td,
+#ordersTable th {
+  padding: 0.4rem 0.35rem;
+  white-space: nowrap;
+  vertical-align: middle;
+  font-size: 0.8125rem;
+  border: 1px solid var(--gray-300);
+  border-right: 1px solid var(--gray-400);
+}
+
+/* เส้นขวาของ column สุดท้าย */
+#ordersTable td:last-child,
+#ordersTable th:last-child {
+  border-right: 1px solid var(--gray-300);
+}
+
+/* Header Text */
+#ordersTable thead th {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+  background: var(--gray-100);
+  border-bottom: 2px solid var(--gray-500);
+}
+
+/* Badge in Table - Smaller */
+#ordersTable .badge {
+  font-size: 0.6875rem;
+  padding: 0.25rem 0.5rem;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+/* Button in Table - Smaller */
+#ordersTable .btn-sm {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
+
+/* Highlight Column - เลข Order */
+#ordersTable td:nth-child(4) {
+  background: #e6f0ff !important;
+  font-weight: 700;
+  border-left: 3px solid #3b82f6 !important;
+  border-right: 3px solid #3b82f6 !important;
+  color: #1e40af;
+}
+
+#ordersTable thead th:nth-child(4) {
+  background: #dbeafe !important;
+  font-weight: 700;
+  border-left: 3px solid #3b82f6 !important;
+  border-right: 3px solid #3b82f6 !important;
+  border-bottom: 3px solid #3b82f6 !important;
+}
+
+/* Hover effect for highlighted column */
+#ordersTable tbody tr:hover td:nth-child(4) {
+  background: #bfdbfe !important;
+}
+
+/* Card for Table */
+.card {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--gray-200);
+}
+
+/* เส้นแนวตั้งชัดเจนสำหรับแต่ละ column */
+#ordersTable td,
+#ordersTable th {
+  border-left: 1px solid var(--gray-300);
+  border-right: 1px solid var(--gray-300);
+}
+
+/* เส้นแนวนอนระหว่างแถว */
+#ordersTable tbody tr {
+  border-bottom: 1px solid var(--gray-300);
+}
+
+/* เส้นหนาสำหรับ header */
+#ordersTable thead tr:first-child {
+  border-bottom: 2px solid var(--gray-500);
+}
+
+/* Table Hover Effect */
+#ordersTable tbody tr:hover {
+  background-color: var(--primary-50);
+  transition: background-color 0.15s ease;
+}
+
+/* Zebra striping - ชัดเจนขึ้น */
+#ordersTable tbody tr:nth-child(even) {
+  background-color: var(--gray-50);
+}
+
+#ordersTable tbody tr:nth-child(odd) {
+  background-color: white;
+}
+
+/* Filter Inputs - Compact */
+#ordersTable thead tr.filters input {
+  font-size: 0.75rem;
+  padding: 0.3rem 0.4rem;
+  height: auto;
+}
+
+/* Checkbox Styling */
+#ordersTable input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+/* Responsive adjustments */
+@media (min-width: 1920px) {
+  .table-responsive {
+    max-height: 80vh !important;
+  }
+}
+
+@media (max-width: 1400px) {
+  .table-responsive {
+    max-height: 70vh !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .table-responsive {
+    max-height: 50vh !important;
+  }
+  
+  #ordersTable td,
+  #ordersTable th {
+    padding: 0.35rem 0.25rem;
+    font-size: 0.75rem;
+  }
+  
+  #ordersTable .badge {
+    font-size: 0.625rem;
+    padding: 0.2rem 0.4rem;
+  }
+}
+
+/* Print Styles */
+@media print {
+  #ordersTable td:nth-child(4) {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

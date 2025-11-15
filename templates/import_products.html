@@ -1,0 +1,31 @@
+
+{% extends "base.html" %}
+{% block content %}
+<div class="container">
+  <div class="mb-4">
+    <h2 class="mb-0 fw-bold" style="color: var(--gray-900);">
+      <i data-lucide="package"></i> นำเข้าสินค้า (Product Master)
+    </h2>
+    <p class="text-muted mt-2">อัปโหลดไฟล์ Excel เพื่อนำเข้าข้อมูลสินค้า</p>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <form method="post" enctype="multipart/form-data" class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">ไฟล์ Excel</label>
+          <input type="file" name="file" class="form-control" required>
+        </div>
+        <div class="col-12">
+          <button class="btn btn-primary">
+            <i data-lucide="upload"></i> นำเข้า
+          </button>
+          <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">
+            <i data-lucide="arrow-left"></i> กลับ
+          </a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

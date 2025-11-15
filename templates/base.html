@@ -1,0 +1,243 @@
+
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ APP_NAME }}</title>
+  <!-- Preconnect to CDNs for faster loading -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="preconnect" href="https://code.jquery.com" crossorigin>
+  <link rel="preconnect" href="https://unpkg.com" crossorigin>
+  
+  <!-- IBM Plex Sans Thai Font - Optimized -->
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/dataTables.bootstrap5.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+  <div class="container-fluid">
+    <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}">{{ APP_NAME }}</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item">
+          <a href="{{ url_for('dashboard') }}" class="nav-link">
+            <i data-lucide="layout-dashboard" style="width: 16px; height: 16px;"></i> Dashboard
+          </a>
+        </li>
+
+        {# ===== เมนูนำเข้า: กันพังถ้าไม่มีตัวแปร has_endpoint ใน Jinja ===== #}
+        {% set _ep = has_endpoint if has_endpoint is defined else None %}
+        {% set _has_orders   = _ep and _ep('import_orders_view') %}
+        {% set _has_products = _ep and _ep('import_products_view') %}
+        {% set _has_stock    = _ep and _ep('import_stock_view') %}
+        {% set _has_sales    = _ep and _ep('import_sales_view') %}
+        {% set _any_import   = _has_orders or _has_products or _has_stock or _has_sales %}
+
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+            <i data-lucide="upload" style="width: 16px; height: 16px;"></i> นำเข้า
+          </a>
+          <ul class="dropdown-menu">
+            {% if _has_orders %}
+              <li>
+                <a class="dropdown-item" href="{{ url_for('import_orders_view') }}">
+                  <i data-lucide="shopping-cart" style="width: 16px; height: 16px;"></i> Import Orders
+                </a>
+              </li>
+            {% endif %}
+            {% if _has_products %}
+              <li>
+                <a class="dropdown-item" href="{{ url_for('import_products_view') }}">
+                  <i data-lucide="package" style="width: 16px; height: 16px;"></i> Import สินค้า
+                </a>
+              </li>
+            {% endif %}
+            {% if _has_stock %}
+              <li>
+                <a class="dropdown-item" href="{{ url_for('import_stock_view') }}">
+                  <i data-lucide="database" style="width: 16px; height: 16px;"></i> Import สต็อก
+                </a>
+              </li>
+            {% endif %}
+            {% if _has_sales %}
+              <li>
+                <a class="dropdown-item" href="{{ url_for('import_sales_view') }}">
+                  <i data-lucide="trending-up" style="width: 16px; height: 16px;"></i> Import สั่งขาย
+                </a>
+              </li>
+            {% endif %}
+
+            {# หากไม่มี endpoint ใดเลย (หรือแม้ไม่มีตัวแปร has_endpoint) ให้แสดงข้อความแจ้ง #}
+            {% if not _any_import %}
+              <li><span class="dropdown-item-text text-muted">ไม่มีเมนูนําเข้า</span></li>
+            {% endif %}
+          </ul>
+        </li>
+
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+            <i data-lucide="package" style="width: 16px; height: 16px;"></i> Batch Management
+          </a>
+          <ul class="dropdown-menu">
+            <li>
+              <a class="dropdown-item" href="{{ url_for('batch_list') }}">
+                <i data-lucide="list" style="width: 16px; height: 16px;"></i> รายการ Batch
+              </a>
+            </li>
+            <li>
+              <a class="dropdown-item" href="{{ url_for('batch_create') }}">
+                <i data-lucide="plus-circle" style="width: 16px; height: 16px;"></i> สร้าง Batch ใหม่
+              </a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+            <i data-lucide="scan" style="width: 16px; height: 16px;"></i> สแกนคลัง
+          </a>
+          <ul class="dropdown-menu">
+            <li>
+              <a class="dropdown-item" href="{{ url_for('scan_batch') }}">
+                <i data-lucide="qr-code" style="width: 16px; height: 16px;"></i> 1. สแกนรับงาน (Batch)
+              </a>
+            </li>
+            <li>
+              <a class="dropdown-item" href="{{ url_for('scan_sku') }}">
+                <i data-lucide="package-search" style="width: 16px; height: 16px;"></i> 2. สแกนหยิบของ (SKU)
+              </a>
+            </li>
+            <li>
+              <a class="dropdown-item" href="{{ url_for('scan_tracking') }}">
+                <i data-lucide="truck" style="width: 16px; height: 16px;"></i> 3. สแกนส่งของ (Tracking)
+              </a>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-item">
+          <a href="{{ url_for('print_warehouse') }}" class="nav-link">
+            <i data-lucide="printer" style="width: 16px; height: 16px;"></i> พิมพ์รายงานคลัง
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{{ url_for('admin_clear') }}" class="nav-link">
+            <i data-lucide="trash-2" style="width: 16px; height: 16px;"></i> ล้างข้อมูล
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{{ url_for('admin_users') }}" class="nav-link">
+            <i data-lucide="users" style="width: 16px; height: 16px;"></i> ผู้ใช้งาน
+          </a>
+        </li>
+      </ul>
+
+      <div class="d-flex align-items-center gap-3">
+        <span class="navbar-text text-warning small">
+          เวลา (ไทย/พ.ศ.): <span id="clockTH"></span>
+        </span>
+        {% if CURRENT_USER %}
+          <span class="badge text-bg-light text-dark">
+            <i data-lucide="user" style="width: 14px; height: 14px;"></i> {{ CURRENT_USER.username }}
+          </span>
+          <a class="btn btn-sm btn-outline-light" href="{{ url_for('logout') }}">
+            <i data-lucide="log-out" style="width: 16px; height: 16px;"></i> ออกจากระบบ
+          </a>
+        {% else %}
+          <a class="btn btn-sm btn-outline-light" href="{{ url_for('login') }}">
+            <i data-lucide="log-in" style="width: 16px; height: 16px;"></i> เข้าสู่ระบบ
+          </a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</nav>
+
+<main class="container-fluid py-3">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="container">
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</main>
+
+{# ==== ใช้บล็อก footer เพื่อให้บางหน้าสามารถ override ซ่อนได้ ==== #}
+{% block footer %}
+<footer class="bg-light border-top mt-5">
+  <div class="container py-3 small">
+    <div class="text-center">
+      <div>[VNIX Order Management] © {{ BE_YEAR }} บริษัท วีนิก กรุ๊ป จำกัด สงวนลิขสิทธิ์</div>
+      <div class="text-muted mt-2" style="white-space: pre-line;">
+ซอฟต์แวร์นี้ถือเป็นความลับทางการค้า (Trade Secret) และเป็นทรัพย์สินทางปัญญาที่มีมูลค่าของ บริษัท วีนิก กรุ๊ป จำกัด
+ได้รับการพัฒนาขึ้นเพื่อใช้เป็นการภายในของบริษัทฯ เท่านั้น ห้ามมิให้พนักงานหรือบุคคลใดๆ ที่ได้รับอนุญาตให้ใช้งาน ทำการเปิดเผย ทำซ้ำ ดัดแปลง แก้ไข แจกจ่าย จำหน่าย หรือถ่ายโอนซอฟต์แวร์นี้ (ไม่ว่าทั้งหมดหรือบางส่วน) ให้แก่บุคคลภายนอก โดยไม่ได้รับอนุญาตเป็นลายลักษณ์อักษรจากบริษัทฯ
+ผู้ฝ่าฝืนจะถูกดำเนินการทางวินัย และ/หรือ ดำเนินคดีตามกฎหมายแพ่งและอาญาในสถานหนักที่สุด
+      </div>
+    </div>
+  </div>
+</footer>
+{% endblock %}
+
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js" defer></script>
+<script src="https://cdn.datatables.net/1.13.8/js/dataTables.bootstrap5.min.js" defer></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script>
+  // Initialize Lucide icons - Optimized version
+  (function() {
+    let isInitializing = false;
+    let initTimeout = null;
+    
+    function initIcons() {
+      if (isInitializing) return;
+      
+      isInitializing = true;
+      if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+      }
+      
+      // Reset flag after a short delay
+      setTimeout(function() {
+        isInitializing = false;
+      }, 100);
+    }
+    
+    // Initial load
+    document.addEventListener('DOMContentLoaded', initIcons);
+    
+    // Debounced re-initialization for dynamic content
+    function debouncedInit() {
+      clearTimeout(initTimeout);
+      initTimeout = setTimeout(initIcons, 250);
+    }
+    
+    // Only re-initialize after DataTables draw (not all AJAX)
+    if (typeof jQuery !== 'undefined') {
+      $(document).on('draw.dt', debouncedInit);
+    }
+    
+    // Expose global function for manual initialization if needed
+    window.refreshIcons = initIcons;
+  })();
+</script>
+<script src="{{ url_for('static', filename='main.js') }}"></script>
+</body>
+</html>

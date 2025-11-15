@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+  <!-- Header -->
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h2><i data-lucide="package"></i> Batch: {{ batch.batch_id }}</h2>
+      <p class="text-muted mb-0">
+        <strong>Platform:</strong> {{ batch.platform }} |
+        <strong>Run:</strong> R{{ batch.run_no }} |
+        <strong>วันที่:</strong> {{ batch.batch_date|be_date }}
+      </p>
+    </div>
+    <div>
+      <a href="{{ url_for('batch_list') }}" class="btn btn-secondary">
+        <i data-lucide="arrow-left"></i> กลับไปรายการ Batch
+      </a>
+      <a href="{{ url_for('batch_export_excel', batch_id=batch.batch_id) }}" class="btn btn-success">
+        <i data-lucide="file-spreadsheet"></i> Export Excel
+      </a>
+      <a href="{{ url_for('batch_summary_json', batch_id=batch.batch_id) }}" class="btn btn-info" target="_blank">
+        <i data-lucide="file-code"></i> JSON API
+      </a>
+    </div>
+  </div>
+
+  <!-- Summary Cards -->
+  <div class="row mb-4">
+    <!-- Total Orders -->
+    <div class="col-md-3 col-6 mb-3">
+      <div class="card bg-primary text-white h-100">
+        <div class="card-body text-center">
+          <div class="display-3 fw-bold">📦</div>
+          <h1 class="display-3 fw-bold mb-2">{{ batch.total_orders }}</h1>
+          <p class="mb-0 fs-6">จำนวนออเดอร์ทั้งหมด</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Lock Status -->
+    <div class="col-md-3 col-6 mb-3">
+      <div class="card {% if batch.locked %}bg-success{% else %}bg-warning{% endif %} text-white h-100">
+        <div class="card-body text-center">
+          <h1 class="display-3 mb-2">{% if batch.locked %}🔒{% else %}🔓{% endif %}</h1>
+          <p class="mb-0 fs-5 fw-bold">{% if batch.locked %}Locked{% else %}Unlocked{% endif %}</p>
+          <small class="opacity-75">สถานะ Batch</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Run Number -->
+    <div class="col-md-3 col-6 mb-3">
+      <div class="card bg-info text-white h-100">
+        <div class="card-body text-center">
+          <div class="display-3 fw-bold">🔄</div>
+          <h1 class="display-3 fw-bold mb-2">R{{ batch.run_no }}</h1>
+          <p class="mb-0 fs-6">รอบที่</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Created By -->
+    <div class="col-md-3 col-6 mb-3">
+      <div class="card bg-dark text-white h-100">
+        <div class="card-body text-center">
+          <div class="display-4 mb-2">👤</div>
+          <h6 class="mb-1">สร้างโดย:</h6>
+          <p class="mb-1 fs-5 fw-bold">{{ batch.created_by_username or 'System' }}</p>
+          <small class="opacity-75">{{ batch.created_at|thai_be }}</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Carrier Summary -->
+  <div class="row mb-4">
+    <div class="col-md-12">
+      <div class="card">
+        <div class="card-header bg-secondary text-white">
+          <h5 class="mb-0">สรุปตามขนส่ง (Carrier Summary)</h5>
+        </div>
+        <div class="card-body">
+          <div class="row g-3">
+            {% set sorted_carriers = carrier_summary.items()|sort(attribute='1', reverse=True) %}
+            {% for carrier, count in sorted_carriers %}
+            {% if count > 0 %}
+            <div class="col-lg-2 col-md-3 col-6">
+              <div class="card border-{% if carrier == 'SPX' %}danger{% elif carrier == 'Flash' %}warning{% elif carrier == 'LEX' %}primary{% elif carrier == 'J&T' %}success{% else %}secondary{% endif %} h-100">
+                <div class="card-body text-center p-3">
+                  <h2 class="display-4 fw-bold text-{% if carrier == 'SPX' %}danger{% elif carrier == 'Flash' %}warning{% elif carrier == 'LEX' %}primary{% elif carrier == 'J&T' %}success{% else %}secondary{% endif %} mb-2">
+                    {{ count }}
+                  </h2>
+                  <span class="badge bg-{% if carrier == 'SPX' %}danger{% elif carrier == 'Flash' %}warning text-dark{% elif carrier == 'LEX' %}primary{% elif carrier == 'J&T' %}success{% else %}secondary{% endif %} fs-6">
+                    {{ carrier }}
+                  </span>
+                  {% if batch.total_orders > 0 %}
+                  <div class="mt-2">
+                    <small class="text-muted">{{ "%.1f"|format((count / batch.total_orders * 100)) }}%</small>
+                  </div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Shop Summary -->
+  <div class="row mb-4">
+    <div class="col-md-12">
+      <div class="card">
+        <div class="card-header bg-info text-white">
+          <h5 class="mb-0">สรุปตามร้าน (Shop Summary)</h5>
+        </div>
+        <div class="card-body">
+          <div class="row g-3">
+            {% set sorted_shops = shop_summary.items()|sort(attribute='1', reverse=True) %}
+            {% for shop, count in sorted_shops %}
+            <div class="col-lg-3 col-md-4 col-sm-6 mb-3">
+              <div class="card border-info h-100 {% if loop.index <= 3 %}border-3{% endif %}">
+                <div class="card-body text-center p-3">
+                  {% if loop.index == 1 %}
+                  <div class="badge bg-warning text-dark mb-2">🥇 Top 1</div>
+                  {% elif loop.index == 2 %}
+                  <div class="badge bg-secondary text-white mb-2">🥈 Top 2</div>
+                  {% elif loop.index == 3 %}
+                  <div class="badge bg-bronze text-white mb-2" style="background-color: #CD7F32;">🥉 Top 3</div>
+                  {% endif %}
+                  <h3 class="text-info fw-bold mb-2 {% if loop.index <= 3 %}fs-2{% else %}fs-4{% endif %}">{{ count }}</h3>
+                  <p class="mb-0 small {% if loop.index <= 3 %}fw-bold{% endif %}">{{ shop }}</p>
+                  {% if batch.total_orders > 0 %}
+                  <div class="mt-2">
+                    <small class="text-muted">{{ "%.1f"|format((count / batch.total_orders * 100)) }}%</small>
+                  </div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Orders List -->
+  <div class="card">
+    <div class="card-header bg-dark text-white">
+      <h5 class="mb-0">📋 รายการออเดอร์ใน Batch ({{ orders|length }} items)</h5>
+    </div>
+    <div class="card-body">
+      {% if orders %}
+      <table class="table table-sm table-hover" id="ordersTable">
+        <thead class="table-light">
+          <tr>
+            <th>Order ID</th>
+            <th>SKU</th>
+            <th>สินค้า</th>
+            <th>Qty</th>
+            <th>Carrier</th>
+            <th>Shop</th>
+            <th>เวลาสั่ง</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for order in orders %}
+          <tr>
+            <td><strong>{{ order.order_id }}</strong></td>
+            <td><code>{{ order.sku }}</code></td>
+            <td>{{ order.item_name }}</td>
+            <td class="text-center">{{ order.qty }}</td>
+            <td>
+              {% set c = order.carrier or 'Unknown' %}
+              <span class="badge bg-{% if c == 'SPX' %}danger{% elif c == 'Flash' %}warning text-dark{% elif c == 'LEX' %}primary{% elif c == 'J&T' %}success{% else %}secondary{% endif %}">
+                {{ c }}
+              </span>
+            </td>
+            <td>{{ order.shop.name if order.shop else '-' }}</td>
+            <td class="small">{{ order.order_time|thai_be }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="alert alert-warning">ไม่พบออเดอร์ใน Batch นี้</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+$(document).ready(function() {
+  $('#ordersTable').DataTable({
+    pageLength: 50,
+    order: [[0, 'asc']],
+    language: {
+      url: '//cdn.datatables.net/plug-ins/1.13.8/i18n/th.json'
+    }
+  });
+});
+</script>
+{% endblock %}
