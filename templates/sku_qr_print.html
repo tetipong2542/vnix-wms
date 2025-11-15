@@ -80,24 +80,20 @@
     .qr-grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 15px;
+      gap: 12px;
       page-break-inside: avoid;
     }
 
     .qr-grid.batch-grid {
       grid-template-columns: 1fr;
-      max-width: 400px;
+      max-width: 500px;
       margin: 0 auto;
-    }
-
-    .qr-grid.tracking-grid {
-      grid-template-columns: repeat(3, 1fr);
     }
 
     .qr-item {
       border: 2px solid #d1d5db;
       border-radius: 8px;
-      padding: 12px;
+      padding: 10px;
       text-align: center;
       background: #ffffff;
       box-shadow: 0 1px 3px rgba(0,0,0,0.1);
@@ -109,22 +105,26 @@
       box-shadow: 0 4px 6px rgba(0,0,0,0.15);
     }
 
+    .qr-item.batch-item {
+      padding: 20px;
+    }
+
     .qr-item.batch-item img {
-      width: 200px;
-      height: 200px;
+      width: 280px;
+      height: 280px;
     }
 
     .qr-item.tracking-item img {
-      width: 120px;
-      height: 120px;
+      width: 160px;
+      height: 160px;
     }
 
     .qr-item img {
-      width: 100px;
-      height: 100px;
+      width: 160px;
+      height: 160px;
       display: block;
-      margin: 0 auto 10px;
-      border: 1px solid #e5e7eb;
+      margin: 0 auto 8px;
+      border: 2px solid #e5e7eb;
       border-radius: 4px;
     }
 
@@ -301,25 +301,30 @@
   </div>
 
   <!-- Section 2: Tracking QR Codes -->
-  {% if tracking_list %}
   <div class="section">
     <div class="section-header tracking">
       <span>🚚</span>
-      <span>Section 2: QR Code Tracking Numbers ({{ total_trackings }} รายการ)</span>
+      <span>Section 2: QR Code Tracking Numbers ({{ total_trackings or 0 }} รายการ)</span>
     </div>
-    <div class="qr-grid tracking-grid">
+    {% if tracking_list and tracking_list|length > 0 %}
+    <div class="qr-grid">
       {% for item in tracking_list %}
       <div class="qr-item tracking-item">
         <img src="{{ url_for('generate_qr', text=item.tracking) }}"
              alt="QR Code for {{ item.tracking }}">
-        <div class="sku-code" style="font-size: 9pt;">{{ item.tracking }}</div>
-        <div class="brand" style="font-size: 7pt;">{{ item.carrier }}</div>
-        <div class="product-name" style="font-size: 7pt; min-height: auto;">Order: {{ item.order_id }}</div>
+        <div class="sku-code" style="font-size: 10pt;">{{ item.tracking[:20] }}{% if item.tracking|length > 20 %}...{% endif %}</div>
+        <div class="brand" style="font-size: 8pt; color: #059669; font-weight: 600;">{{ item.carrier }}</div>
+        <div class="product-name" style="font-size: 7pt; min-height: auto; color: #6b7280;">{{ item.order_id }}</div>
       </div>
       {% endfor %}
     </div>
+    {% else %}
+    <div class="alert alert-warning" style="text-align: center; padding: 20px; background: #fef3c7; border: 2px solid #f59e0b; border-radius: 8px; margin: 20px 0;">
+      <strong>⚠️ ยังไม่มี Tracking Number ใน Batch นี้</strong>
+      <p style="margin-top: 10px; color: #92400e;">Tracking Number จะถูกเพิ่มหลังจากที่มีการ Import Order หรือ Assign Tracking</p>
+    </div>
+    {% endif %}
   </div>
-  {% endif %}
 
   <!-- Section 3: SKU QR Codes -->
   <div class="section">
@@ -332,17 +337,17 @@
       <div class="qr-item">
         <img src="{{ url_for('generate_qr', text=item.sku) }}"
              alt="QR Code for {{ item.sku }}">
-        <div class="sku-code" style="font-size: 9pt;">{{ item.sku }}</div>
-        <div class="brand" style="font-size: 7pt;">{{ item.brand or '-' }}</div>
-        <div class="product-name" style="font-size: 7pt;">{{ item.model or item.item_name or '-' }}</div>
-        <div class="stock-info">
+        <div class="sku-code" style="font-size: 10pt;">{{ item.sku }}</div>
+        <div class="brand" style="font-size: 8pt; color: #f59e0b; font-weight: 600;">{{ item.brand or '-' }}</div>
+        <div class="product-name" style="font-size: 7pt; color: #6b7280;">{{ (item.model or item.item_name or '-')[:30] }}{% if (item.model or item.item_name or '')|length > 30 %}...{% endif %}</div>
+        <div class="stock-info" style="margin-top: 8px; padding-top: 8px;">
           <div class="info-item">
-            <span class="label">หยิบ</span>
-            <span class="value need" style="font-size: 9pt;">{{ item.need_qty }}</span>
+            <span class="label" style="font-size: 7pt;">หยิบ</span>
+            <span class="value need" style="font-size: 11pt; font-weight: 700;">{{ item.need_qty }}</span>
           </div>
           <div class="info-item">
-            <span class="label">สต็อก</span>
-            <span class="value stock" style="font-size: 9pt;">{{ item.stock_qty }}</span>
+            <span class="label" style="font-size: 7pt;">สต็อก</span>
+            <span class="value stock" style="font-size: 11pt; font-weight: 700;">{{ item.stock_qty }}</span>
           </div>
         </div>
       </div>
