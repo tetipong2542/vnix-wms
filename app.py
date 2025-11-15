@@ -2127,6 +2127,46 @@ def create_app():
             is_batch_print=True  # flag เพื่อแสดงว่าเป็นการพิมพ์จาก Batch
         )
 
+    @app.route("/batch/<batch_id>/print-sku-qr")
+    @login_required
+    def batch_print_sku_qr(batch_id):
+        """พิมพ์ QR Code ขนาดใหญ่สำหรับทุก SKU ใน Batch"""
+        batch = Batch.query.get_or_404(batch_id)
+        orders = OrderLine.query.filter_by(batch_id=batch_id).all()
+
+        if not orders:
+            flash(f"ไม่พบออเดอร์ใน Batch {batch_id}", "warning")
+            return redirect(url_for('batch_detail', batch_id=batch_id))
+
+        # รวม SKU ที่ไม่ซ้ำกัน พร้อมข้อมูลสินค้า
+        sku_dict = {}
+        for order in orders:
+            if order.sku not in sku_dict:
+                product = Product.query.filter_by(sku=order.sku).first()
+                stock = Stock.query.filter_by(sku=order.sku).first()
+
+                sku_dict[order.sku] = {
+                    "sku": order.sku,
+                    "brand": product.brand if product else "",
+                    "model": product.model if product else order.item_name or "",
+                    "item_name": order.item_name or "",
+                    "stock_qty": stock.qty if stock else 0,
+                    "need_qty": 0
+                }
+
+            # นับจำนวนที่ต้องหยิบ
+            sku_dict[order.sku]["need_qty"] += order.qty
+
+        # แปลงเป็น list และเรียงตาม SKU
+        sku_list = sorted(sku_dict.values(), key=lambda x: x["sku"])
+
+        return render_template(
+            "sku_qr_print.html",
+            batch=batch,
+            sku_list=sku_list,
+            total_skus=len(sku_list)
+        )
+
     @app.route("/export_picking.xlsx")
     @login_required
     def export_picking_excel():

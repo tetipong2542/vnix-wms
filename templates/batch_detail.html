@@ -22,10 +22,13 @@
       <a href="{{ url_for('batch_print_picking', batch_id=batch.batch_id) }}" class="btn btn-warning" target="_blank">
         <i data-lucide="package-check"></i> พิมพ์ Picking List
       </a>
+      <a href="{{ url_for('batch_print_sku_qr', batch_id=batch.batch_id) }}" class="btn btn-info" target="_blank">
+        <i data-lucide="qr-code"></i> พิมพ์ QR Code SKU
+      </a>
       <a href="{{ url_for('batch_export_excel', batch_id=batch.batch_id) }}" class="btn btn-success">
         <i data-lucide="file-spreadsheet"></i> Export Excel
       </a>
-      <a href="{{ url_for('batch_summary_json', batch_id=batch.batch_id) }}" class="btn btn-info" target="_blank">
+      <a href="{{ url_for('batch_summary_json', batch_id=batch.batch_id) }}" class="btn btn-secondary" target="_blank">
         <i data-lucide="file-code"></i> JSON API
       </a>
     </div>
@@ -42,10 +45,10 @@
                 <img src="{{ url_for('generate_qr', text=batch.batch_id) }}"
                      alt="QR Code for {{ batch.batch_id }}"
                      id="batch-qr-image"
-                     style="width: 200px; height: 200px; display: block;">
+                     style="width: 300px; height: 300px; display: block;">
               </div>
-              <p class="mt-2 mb-0 small text-muted"><strong>{{ batch.batch_id }}</strong></p>
-              <p class="mt-1 mb-0 small text-muted">สแกนเพื่อรับงาน Batch</p>
+              <p class="mt-2 mb-0 fw-bold fs-5"><strong>{{ batch.batch_id }}</strong></p>
+              <p class="mt-1 mb-0 text-muted">สแกนเพื่อรับงาน Batch</p>
             </div>
             <div class="col-md-9">
               <h4 class="mb-3">
