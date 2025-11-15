@@ -259,7 +259,7 @@ def create_app():
         all_complete = all(line.picked_qty and line.picked_qty >= line.qty for line in order_lines)
 
         # Check if any line has shortage
-        has_shortage = any(line.shortage_qty and line.shortage_qty > 0 for line in order_lines)
+        has_shortage = any(getattr(line, 'shortage_qty', 0) and getattr(line, 'shortage_qty', 0) > 0 for line in order_lines)
 
         if all_complete and not has_shortage:
             return "ready"  # ทุกอย่างครบ พร้อมส่ง
@@ -2386,174 +2386,196 @@ def create_app():
     @login_required
     def api_scan_sku():
         """API สำหรับสแกน SKU และแสดงข้อมูล Need/Picked/Remaining (รองรับ Partial Picking)"""
-        data = request.get_json()
-        sku = data.get("sku", "").strip()
+        try:
+            data = request.get_json()
+            sku = data.get("sku", "").strip()
 
-        if not sku:
-            return jsonify({"success": False, "error": "กรุณาระบุ SKU"}), 400
+            if not sku:
+                return jsonify({"success": False, "error": "กรุณาระบุ SKU"}), 400
 
-        # หาออเดอร์ที่ยังไม่ dispatch และต้องการ SKU นี้
-        orders = OrderLine.query.filter(
-            OrderLine.sku == sku,
-            OrderLine.dispatch_status != "dispatched",
-            OrderLine.accepted == True
-        ).all()
+            # หาออเดอร์ที่ยังไม่ dispatch และต้องการ SKU นี้
+            orders = OrderLine.query.filter(
+                OrderLine.sku == sku,
+                OrderLine.dispatch_status != "dispatched",
+                OrderLine.accepted == True
+            ).all()
 
-        if not orders:
+            if not orders:
+                return jsonify({
+                    "success": False,
+                    "error": f"ไม่พบออเดอร์ที่ต้องการ SKU: {sku} (หรือยังไม่รับงาน)"
+                }), 404
+
+            # คำนวณ Need / Picked / Remaining / Shortage (with fallback for missing column)
+            total_need = sum(o.qty for o in orders)
+            total_picked = sum(o.picked_qty or 0 for o in orders)
+            total_shortage = sum(getattr(o, 'shortage_qty', 0) or 0 for o in orders)
+            total_remaining = total_need - total_picked
+
+            # ดึงข้อมูลสินค้า
+            product = Product.query.filter_by(sku=sku).first()
+            stock = Stock.query.filter_by(sku=sku).first()
+            stock_qty = stock.qty if stock else 0
+
+            # สร้างรายการออเดอร์ที่ต้องการ SKU นี้
+            order_list = []
+            for order in orders:
+                order_list.append({
+                    "order_id": order.order_id,
+                    "qty": order.qty,
+                    "picked_qty": order.picked_qty or 0,
+                    "shortage_qty": getattr(order, 'shortage_qty', 0) or 0,
+                    "status": order.dispatch_status
+                })
+
+            return jsonify({
+                "success": True,
+                "sku": sku,
+                "brand": product.brand if product else "",
+                "model": product.model if product else "",
+                "stock_qty": stock_qty,
+                "total_need": total_need,
+                "total_picked": total_picked,
+                "total_shortage": total_shortage,
+                "total_remaining": total_remaining,
+                "order_count": len(orders),
+                "orders": order_list,
+                "can_fulfill": stock_qty >= total_remaining,
+                "suggested_pick_qty": min(stock_qty, total_remaining)
+            })
+        except Exception as e:
+            # Log the error for debugging
+            print(f"ERROR in /api/scan/sku: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return jsonify({
                 "success": False,
-                "error": f"ไม่พบออเดอร์ที่ต้องการ SKU: {sku} (หรือยังไม่รับงาน)"
-            }), 404
-
-        # คำนวณ Need / Picked / Remaining / Shortage
-        total_need = sum(o.qty for o in orders)
-        total_picked = sum(o.picked_qty or 0 for o in orders)
-        total_shortage = sum(o.shortage_qty or 0 for o in orders)
-        total_remaining = total_need - total_picked
-
-        # ดึงข้อมูลสินค้า
-        product = Product.query.filter_by(sku=sku).first()
-        stock = Stock.query.filter_by(sku=sku).first()
-        stock_qty = stock.qty if stock else 0
-
-        # สร้างรายการออเดอร์ที่ต้องการ SKU นี้
-        order_list = []
-        for order in orders:
-            order_list.append({
-                "order_id": order.order_id,
-                "qty": order.qty,
-                "picked_qty": order.picked_qty or 0,
-                "shortage_qty": order.shortage_qty or 0,
-                "status": order.dispatch_status
-            })
-
-        return jsonify({
-            "success": True,
-            "sku": sku,
-            "brand": product.brand if product else "",
-            "model": product.model if product else "",
-            "stock_qty": stock_qty,
-            "total_need": total_need,
-            "total_picked": total_picked,
-            "total_shortage": total_shortage,
-            "total_remaining": total_remaining,
-            "order_count": len(orders),
-            "orders": order_list,
-            "can_fulfill": stock_qty >= total_remaining,
-            "suggested_pick_qty": min(stock_qty, total_remaining)
-        })
+                "error": f"เกิดข้อผิดพลาดในระบบ: {str(e)}"
+            }), 500
 
     @app.route("/api/pick/sku", methods=["POST"])
     @login_required
     def api_pick_sku():
         """API สำหรับบันทึกการหยิบ SKU (รองรับ Partial Picking)"""
-        data = request.get_json()
-        sku = data.get("sku", "").strip()
-        qty = data.get("qty", 1)
-        mark_shortage = data.get("mark_shortage", False)  # บอกว่านี่คือการ mark shortage
+        try:
+            data = request.get_json()
+            sku = data.get("sku", "").strip()
+            qty = data.get("qty", 1)
+            mark_shortage = data.get("mark_shortage", False)  # บอกว่านี่คือการ mark shortage
 
-        if not sku:
-            return jsonify({"success": False, "error": "กรุณาระบุ SKU"}), 400
+            if not sku:
+                return jsonify({"success": False, "error": "กรุณาระบุ SKU"}), 400
 
-        # หาออเดอร์ที่ยังหยิบไม่ครบ
-        orders = OrderLine.query.filter(
-            OrderLine.sku == sku,
-            OrderLine.dispatch_status != "dispatched",
-            OrderLine.accepted == True
-        ).order_by(OrderLine.order_time).all()
+            # หาออเดอร์ที่ยังหยิบไม่ครบ
+            orders = OrderLine.query.filter(
+                OrderLine.sku == sku,
+                OrderLine.dispatch_status != "dispatched",
+                OrderLine.accepted == True
+            ).order_by(OrderLine.order_time).all()
 
-        if not orders:
-            return jsonify({"success": False, "error": "ไม่พบออเดอร์"}), 404
+            if not orders:
+                return jsonify({"success": False, "error": "ไม่พบออเดอร์"}), 404
 
-        cu = current_user()
-        now = now_thai()
-        remaining_to_pick = qty
+            cu = current_user()
+            now = now_thai()
+            remaining_to_pick = qty
 
-        picked_orders = []
-        shortage_orders = []
+            picked_orders = []
+            shortage_orders = []
 
-        # อัปเดตการหยิบตามลำดับออเดอร์
-        for order in orders:
-            if remaining_to_pick <= 0 and not mark_shortage:
-                break
+            # อัปเดตการหยิบตามลำดับออเดอร์
+            for order in orders:
+                if remaining_to_pick <= 0 and not mark_shortage:
+                    break
 
-            need = order.qty - order.picked_qty
-            if need > 0:
-                if mark_shortage:
-                    # กรณี Mark Shortage: บันทึกว่าขาดเท่าไหร่
-                    order.shortage_qty = need
-                    order.dispatch_status = "partial_ready"  # สถานะใหม่: หยิบได้บางส่วน
-                    shortage_orders.append({
-                        "order_id": order.order_id,
-                        "sku": order.sku,
-                        "needed": need,
-                        "shortage": need
-                    })
-                else:
-                    # กรณีปกติ: หยิบตามจำนวนที่มี
-                    pick_this = min(need, remaining_to_pick)
-                    order.picked_qty += pick_this
-                    order.picked_at = now
-                    order.picked_by_user_id = cu.id
-                    order.picked_by_username = cu.username
-
-                    # คำนวณ shortage
-                    still_need = order.qty - order.picked_qty
-                    order.shortage_qty = still_need
-
-                    # อัปเดตสถานะ
-                    if order.picked_qty >= order.qty:
-                        order.dispatch_status = "ready"  # หยิบครบแล้ว
-                        picked_orders.append({
+                need = order.qty - order.picked_qty
+                if need > 0:
+                    if mark_shortage:
+                        # กรณี Mark Shortage: บันทึกว่าขาดเท่าไหร่
+                        if hasattr(order, 'shortage_qty'):
+                            order.shortage_qty = need
+                        order.dispatch_status = "partial_ready"  # สถานะใหม่: หยิบได้บางส่วน
+                        shortage_orders.append({
                             "order_id": order.order_id,
                             "sku": order.sku,
-                            "picked": pick_this,
-                            "status": "complete"
+                            "needed": need,
+                            "shortage": need
                         })
-                    elif order.picked_qty > 0:
-                        order.dispatch_status = "partial_ready"  # หยิบได้บางส่วน
-                        picked_orders.append({
-                            "order_id": order.order_id,
-                            "sku": order.sku,
-                            "picked": pick_this,
-                            "shortage": still_need,
-                            "status": "partial"
-                        })
+                    else:
+                        # กรณีปกติ: หยิบตามจำนวนที่มี
+                        pick_this = min(need, remaining_to_pick)
+                        order.picked_qty += pick_this
+                        order.picked_at = now
+                        order.picked_by_user_id = cu.id
+                        order.picked_by_username = cu.username
 
-                    remaining_to_pick -= pick_this
+                        # คำนวณ shortage
+                        still_need = order.qty - order.picked_qty
+                        if hasattr(order, 'shortage_qty'):
+                            order.shortage_qty = still_need
 
-        db.session.commit()
+                        # อัปเดตสถานะ
+                        if order.picked_qty >= order.qty:
+                            order.dispatch_status = "ready"  # หยิบครบแล้ว
+                            picked_orders.append({
+                                "order_id": order.order_id,
+                                "sku": order.sku,
+                                "picked": pick_this,
+                                "status": "complete"
+                            })
+                        elif order.picked_qty > 0:
+                            order.dispatch_status = "partial_ready"  # หยิบได้บางส่วน
+                            picked_orders.append({
+                                "order_id": order.order_id,
+                                "sku": order.sku,
+                                "picked": pick_this,
+                                "shortage": still_need,
+                                "status": "partial"
+                            })
 
-        # บันทึก Audit Log
-        log_audit(
-            action="pick_sku" if not mark_shortage else "mark_shortage",
-            details={
+                        remaining_to_pick -= pick_this
+
+            db.session.commit()
+
+            # บันทึก Audit Log
+            log_audit(
+                action="pick_sku" if not mark_shortage else "mark_shortage",
+                details={
+                    "sku": sku,
+                    "qty_picked": qty,
+                    "picked_by": cu.username,
+                    "mark_shortage": mark_shortage,
+                    "orders_affected": len(picked_orders) + len(shortage_orders)
+                }
+            )
+
+            # คำนวณข้อมูลใหม่
+            total_need = sum(o.qty for o in orders)
+            total_picked = sum(o.picked_qty for o in orders)
+            total_shortage = sum(getattr(o, 'shortage_qty', 0) or 0 for o in orders)
+            total_remaining = total_need - total_picked
+
+            return jsonify({
+                "success": True,
                 "sku": sku,
                 "qty_picked": qty,
-                "picked_by": cu.username,
-                "mark_shortage": mark_shortage,
-                "orders_affected": len(picked_orders) + len(shortage_orders)
-            }
-        )
-
-        # คำนวณข้อมูลใหม่
-        total_need = sum(o.qty for o in orders)
-        total_picked = sum(o.picked_qty for o in orders)
-        total_shortage = sum(o.shortage_qty or 0 for o in orders)
-        total_remaining = total_need - total_picked
-
-        return jsonify({
-            "success": True,
-            "sku": sku,
-            "qty_picked": qty,
-            "total_need": total_need,
-            "total_picked": total_picked,
-            "total_shortage": total_shortage,
-            "total_remaining": total_remaining,
-            "picked_orders": picked_orders,
-            "shortage_orders": shortage_orders,
-            "has_shortage": total_shortage > 0
-        })
+                "total_need": total_need,
+                "total_picked": total_picked,
+                "total_shortage": total_shortage,
+                "total_remaining": total_remaining,
+                "picked_orders": picked_orders,
+                "shortage_orders": shortage_orders,
+                "has_shortage": total_shortage > 0
+            })
+        except Exception as e:
+            # Log the error for debugging
+            print(f"ERROR in /api/pick/sku: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                "success": False,
+                "error": f"เกิดข้อผิดพลาดในระบบ: {str(e)}"
+            }), 500
 
     # -----------------------
     # Scan Tracking (ส่งของ)
@@ -2591,18 +2613,19 @@ def create_app():
         order_status = calculate_order_status(orders)
 
         # คำนวณข้อมูล shortage
-        total_shortage = sum(o.shortage_qty or 0 for o in orders)
+        total_shortage = sum(getattr(o, 'shortage_qty', 0) or 0 for o in orders)
         total_qty = sum(o.qty for o in orders)
         total_picked = sum(o.picked_qty or 0 for o in orders)
 
         # สร้างรายการสินค้าที่มี shortage
         shortage_items = []
         for order in orders:
-            if order.shortage_qty and order.shortage_qty > 0:
+            shortage_qty = getattr(order, 'shortage_qty', 0) or 0
+            if shortage_qty > 0:
                 shortage_items.append({
                     "sku": order.sku,
                     "item_name": order.item_name,
-                    "shortage_qty": order.shortage_qty,
+                    "shortage_qty": shortage_qty,
                     "picked_qty": order.picked_qty or 0,
                     "total_qty": order.qty
                 })
@@ -2663,10 +2686,10 @@ def create_app():
         # ตรวจสอบว่าพร้อมส่งหรือไม่ - เฉพาะ status "ready" เท่านั้นที่ส่งได้
         if order_status != "ready":
             # คำนวณรายละเอียด shortage
-            total_shortage = sum(o.shortage_qty or 0 for o in orders)
+            total_shortage = sum(getattr(o, 'shortage_qty', 0) or 0 for o in orders)
             shortage_items = [
-                f"{o.sku} (ขาด {o.shortage_qty} ชิ้น)"
-                for o in orders if o.shortage_qty and o.shortage_qty > 0
+                f"{o.sku} (ขาด {getattr(o, 'shortage_qty', 0)} ชิ้น)"
+                for o in orders if getattr(o, 'shortage_qty', 0) and getattr(o, 'shortage_qty', 0) > 0
             ]
 
             error_messages = {
