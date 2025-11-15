@@ -203,6 +203,98 @@
     </div>
   </div>
 
+  <!-- SKU Progress Tracking -->
+  <div class="row mb-4">
+    <div class="col-md-12">
+      <div class="card">
+        <div class="card-header bg-primary text-white">
+          <h5 class="mb-0"><i data-lucide="package-check"></i> ความคืบหน้าการหยิบสินค้า (SKU Progress)</h5>
+        </div>
+        <div class="card-body">
+          {% if sku_progress %}
+          <div class="table-responsive">
+            <table class="table table-hover table-sm" id="skuProgressTable">
+              <thead class="table-light">
+                <tr>
+                  <th style="width: 5%;">#</th>
+                  <th style="width: 15%;">SKU</th>
+                  <th style="width: 25%;">สินค้า</th>
+                  <th class="text-center" style="width: 8%;">สต็อก</th>
+                  <th class="text-center" style="width: 8%;">ต้องการ</th>
+                  <th class="text-center" style="width: 8%;">หยิบแล้ว</th>
+                  <th class="text-center" style="width: 8%;">คงเหลือ</th>
+                  <th class="text-center" style="width: 8%;">ขาด</th>
+                  <th class="text-center" style="width: 15%;">สถานะ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in sku_progress %}
+                <tr class="{% if item.status == 'completed' %}table-success{% elif item.status == 'shortage' %}table-danger{% elif item.status == 'picking' %}table-warning{% endif %}">
+                  <td class="text-center">{{ loop.index }}</td>
+                  <td><code class="fw-bold">{{ item.sku }}</code></td>
+                  <td>
+                    <div class="small">
+                      {% if item.brand %}<span class="badge bg-secondary me-1">{{ item.brand }}</span>{% endif %}
+                      {{ item.model or item.item_name }}
+                    </div>
+                  </td>
+                  <td class="text-center">
+                    <span class="badge {% if item.stock_qty >= item.total_need %}bg-success{% elif item.stock_qty > 0 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                      {{ item.stock_qty }}
+                    </span>
+                  </td>
+                  <td class="text-center fw-bold">{{ item.total_need }}</td>
+                  <td class="text-center">
+                    <span class="{% if item.total_picked >= item.total_need %}text-success fw-bold{% else %}text-muted{% endif %}">
+                      {{ item.total_picked }}
+                    </span>
+                  </td>
+                  <td class="text-center">
+                    <span class="{% if item.remaining > 0 %}text-danger fw-bold{% else %}text-muted{% endif %}">
+                      {{ item.remaining }}
+                    </span>
+                  </td>
+                  <td class="text-center">
+                    {% if item.total_shortage > 0 %}
+                    <span class="badge bg-danger">{{ item.total_shortage }}</span>
+                    {% else %}
+                    <span class="text-muted">-</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-center">
+                    <span class="badge bg-{{ item.status_badge }}">
+                      {% if item.status == 'completed' %}✅{% elif item.status == 'shortage' %}⚠️{% elif item.status == 'picking' %}🔄{% else %}⏳{% endif %}
+                      {{ item.status_text }}
+                    </span>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+              <tfoot class="table-light fw-bold">
+                <tr>
+                  <td colspan="3" class="text-end">รวม:</td>
+                  <td class="text-center">-</td>
+                  <td class="text-center">{{ sku_progress|sum(attribute='total_need') }}</td>
+                  <td class="text-center">{{ sku_progress|sum(attribute='total_picked') }}</td>
+                  <td class="text-center text-danger">{{ sku_progress|sum(attribute='remaining') }}</td>
+                  <td class="text-center text-danger">{{ sku_progress|sum(attribute='total_shortage') }}</td>
+                  <td class="text-center">
+                    {% set completed = sku_progress|selectattr('status', 'equalto', 'completed')|list|length %}
+                    {% set total = sku_progress|length %}
+                    <span class="badge bg-primary">{{ completed }}/{{ total }} SKU</span>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          {% else %}
+          <div class="alert alert-info mb-0">ยังไม่มีข้อมูล SKU ใน Batch นี้</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Orders List -->
   <div class="card">
     <div class="card-header bg-dark text-white">

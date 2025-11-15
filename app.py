@@ -1023,12 +1023,66 @@ def create_app():
             "Other": batch.other_count
         }
 
+        # คำนวณ SKU Progress (สำหรับติดตามความคืบหน้าการหยิบสินค้า)
+        from collections import defaultdict
+        sku_progress = {}
+
+        for order in orders:
+            if order.sku not in sku_progress:
+                product = Product.query.filter_by(sku=order.sku).first()
+                stock = Stock.query.filter_by(sku=order.sku).first()
+                sku_progress[order.sku] = {
+                    "sku": order.sku,
+                    "brand": product.brand if product else "",
+                    "model": product.model if product else "",
+                    "item_name": order.item_name,
+                    "stock_qty": stock.qty if stock else 0,
+                    "total_need": 0,
+                    "total_picked": 0,
+                    "total_shortage": 0
+                }
+
+            sku_progress[order.sku]["total_need"] += order.qty
+            sku_progress[order.sku]["total_picked"] += (order.picked_qty or 0)
+            sku_progress[order.sku]["total_shortage"] += getattr(order, 'shortage_qty', 0) or 0
+
+        # คำนวณสถานะและเรียงลำดับ
+        sku_list = []
+        for sku, data in sku_progress.items():
+            remaining = data["total_need"] - data["total_picked"]
+            data["remaining"] = remaining
+
+            # กำหนดสถานะ
+            if data["total_picked"] >= data["total_need"]:
+                data["status"] = "completed"
+                data["status_badge"] = "success"
+                data["status_text"] = "เสร็จสิ้น"
+            elif data["total_shortage"] > 0:
+                data["status"] = "shortage"
+                data["status_badge"] = "danger"
+                data["status_text"] = f"ขาด {data['total_shortage']} ชิ้น"
+            elif data["total_picked"] > 0:
+                data["status"] = "picking"
+                data["status_badge"] = "warning"
+                data["status_text"] = "กำลังหยิบ"
+            else:
+                data["status"] = "pending"
+                data["status_badge"] = "secondary"
+                data["status_text"] = "รอหยิบ"
+
+            sku_list.append(data)
+
+        # เรียงลำดับ: Pending → Picking → Shortage → Completed
+        status_order = {"pending": 0, "picking": 1, "shortage": 2, "completed": 3}
+        sku_list.sort(key=lambda x: status_order.get(x["status"], 0))
+
         return render_template(
             "batch_detail.html",
             batch=batch,
             orders=orders,
             carrier_summary=carrier_summary,
-            shop_summary=shop_summary
+            shop_summary=shop_summary,
+            sku_progress=sku_list
         )
 
     @app.route("/batch/<batch_id>/summary")
@@ -2475,6 +2529,17 @@ def create_app():
 
             if not orders:
                 return jsonify({"success": False, "error": "ไม่พบออเดอร์"}), 404
+
+            # ⚠️ ตรวจสอบสต็อกก่อนอนุญาตให้หยิบ (ป้องกันการมักง่ายและป้องกันการผิดพลาด)
+            if not mark_shortage:
+                stock = Stock.query.filter_by(sku=sku).first()
+                stock_qty = stock.qty if stock else 0
+
+                if qty > stock_qty:
+                    return jsonify({
+                        "success": False,
+                        "error": f"❌ ไม่สามารถหยิบได้!\n\nสต็อกมีเพียง {stock_qty} ชิ้น แต่คุณพยายามหยิบ {qty} ชิ้น\n\nกรุณาหยิบไม่เกิน {stock_qty} ชิ้น หรือกด 'Mark as Shortage'"
+                    }), 400
 
             cu = current_user()
             now = now_thai()
