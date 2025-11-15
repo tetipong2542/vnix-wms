@@ -10,6 +10,7 @@ from functools import wraps
 from collections import defaultdict
 
 import pandas as pd
+import qrcode
 from flask import (
     Flask, render_template, request, redirect, url_for,
     flash, send_file, jsonify, session
@@ -1884,6 +1885,186 @@ def create_app():
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
+    # -----------------------
+    # Print Batch Warehouse Sheet
+    # -----------------------
+    @app.route("/batch/<batch_id>/print-warehouse")
+    @login_required
+    def batch_print_warehouse(batch_id):
+        """พิมพ์ใบงานคลังตาม Batch - ใช้ Layout เดียวกับ /report/warehouse"""
+        batch = Batch.query.get_or_404(batch_id)
+        orders = OrderLine.query.filter_by(batch_id=batch_id).order_by(OrderLine.order_id, OrderLine.sku).all()
+
+        if not orders:
+            flash(f"ไม่พบออเดอร์ใน Batch {batch_id}", "warning")
+            return redirect(url_for('batch_detail', batch_id=batch_id))
+
+        # จัดกลุ่มตาม order_id (แสดงเหมือน /report/warehouse)
+        rows = []
+        prev_order_id = None
+
+        for order in orders:
+            shop = db.session.get(Shop, order.shop_id)
+
+            # แสดง order_id เฉพาะแถวแรกของแต่ละ order
+            show_order_id = (order.order_id != prev_order_id)
+
+            # ดึงข้อมูลสินค้า
+            product = Product.query.filter_by(sku=order.sku).first()
+
+            rows.append({
+                "order_id": order.order_id,
+                "order_id_display": order.order_id if show_order_id else "",
+                "show_order_id": show_order_id,
+                "platform": order.platform,
+                "shop": shop.name if shop else "-",
+                "sku": order.sku,
+                "model": product.model if product else "",
+                "product_name": order.item_name,
+                "qty": order.qty,
+                "carrier": order.carrier,
+                "logistic": order.logistic_type,
+                "accepted_by": order.accepted_by_username or "",
+                "printed_warehouse_count": getattr(order, 'printed_warehouse_count', 0) or 0,
+            })
+
+            prev_order_id = order.order_id
+
+        # คำนวณสรุป
+        count_orders = len(set(o.order_id for o in orders))
+        total_qty = sum(o.qty for o in orders)
+
+        # สรุปตาม Carrier
+        from importers import extract_carrier_from_logistics
+        carrier_counts = defaultdict(int)
+        shop_counts = defaultdict(int)
+        order_ids_seen = set()
+
+        for order in orders:
+            if order.order_id not in order_ids_seen:
+                order_ids_seen.add(order.order_id)
+                carrier = order.carrier or extract_carrier_from_logistics(order.logistic_type or "")
+                carrier_counts[carrier] += 1
+                shop = db.session.get(Shop, order.shop_id)
+                if shop:
+                    shop_counts[shop.name] += 1
+
+        return render_template(
+            "report_print.html",
+            rows=rows,
+            count_orders=count_orders,
+            total_qty=total_qty,
+            carrier_summary=dict(carrier_counts),
+            shop_summary=dict(shop_counts),
+            shops=Shop.query.all(),
+            logistics=[],
+            platform_sel=batch.platform,
+            shop_sel=None,
+            logistic_sel=None,
+            compact_carrier=False,
+            official_print=False,  # เปลี่ยนเป็น False เพื่อแสดง filter-form
+            printed_meta=None,
+            print_count_display=None,
+            batch=batch,  # ส่งข้อมูล Batch ไปด้วย
+            is_batch_print=True  # flag เพื่อแสดงว่าเป็นการพิมพ์จาก Batch
+        )
+
+    # -----------------------
+    # Print Batch Picking List
+    # -----------------------
+    @app.route("/batch/<batch_id>/print-picking")
+    @login_required
+    def batch_print_picking(batch_id):
+        """พิมพ์ Picking List ตาม Batch - ใช้ Layout เดียวกับ /report/picking"""
+        batch = Batch.query.get_or_404(batch_id)
+        orders = OrderLine.query.filter_by(batch_id=batch_id).all()
+
+        if not orders:
+            flash(f"ไม่พบออเดอร์ใน Batch {batch_id}", "warning")
+            return redirect(url_for('batch_detail', batch_id=batch_id))
+
+        # รวมยอดตาม SKU (เหมือน compute_allocation)
+        sku_summary = defaultdict(lambda: {
+            "need_qty": 0,
+            "platform": "",
+            "shop_names": set(),
+            "logistics": set(),
+            "brand": "",
+            "model": "",
+        })
+
+        for order in orders:
+            shop = db.session.get(Shop, order.shop_id)
+            product = Product.query.filter_by(sku=order.sku).first()
+
+            sku_summary[order.sku]["need_qty"] += order.qty
+            sku_summary[order.sku]["platform"] = order.platform
+            if shop:
+                sku_summary[order.sku]["shop_names"].add(shop.name)
+            if order.logistic_type:
+                sku_summary[order.sku]["logistics"].add(order.logistic_type)
+            if product:
+                sku_summary[order.sku]["brand"] = product.brand or ""
+                sku_summary[order.sku]["model"] = product.model or ""
+
+        # สร้าง items list
+        items = []
+        for sku, data in sku_summary.items():
+            stock = Stock.query.filter_by(sku=sku).first()
+            stock_qty = stock.qty if stock else 0
+
+            items.append({
+                "sku": sku,
+                "brand": data["brand"],
+                "model": data["model"],
+                "need_qty": data["need_qty"],
+                "stock_qty": stock_qty,
+                "shortage": max(0, data["need_qty"] - stock_qty),
+                "remain_after_pick": stock_qty - data["need_qty"],
+                "platform": data["platform"],
+                "shop_name": ", ".join(sorted(data["shop_names"])),
+                "logistic": ", ".join(sorted(data["logistics"])),
+            })
+
+        # เรียงตาม SKU
+        items.sort(key=lambda x: x["sku"])
+
+        # คำนวณสรุป
+        totals = {
+            "total_skus": len(items),
+            "total_need_qty": sum(item["need_qty"] for item in items),
+            "total_shortage": sum(item["shortage"] for item in items),
+        }
+
+        # นับจำนวนขนส่งแต่ละประเภท
+        from collections import Counter
+        carrier_counts = Counter()
+        for item in items:
+            # แยก logistics ที่มีหลายค่า (คั่นด้วย ", ")
+            logistics_list = item.get("logistic", "").split(", ")
+            for log in logistics_list:
+                log = log.strip()
+                if log and log != "-":
+                    carrier_counts[log] += 1
+
+        return render_template(
+            "picking_print.html",
+            items=items,
+            totals=totals,
+            carrier_summary=dict(carrier_counts),
+            shops=Shop.query.all(),
+            logistics=[],
+            platform_sel=batch.platform,
+            shop_sel=None,
+            shop_sel_name=None,
+            logistic_sel=None,
+            official_print=False,  # เปลี่ยนเป็น False เพื่อแสดง filter-form
+            printed_meta=None,
+            print_count_overall=None,
+            batch=batch,  # ส่งข้อมูล Batch ไปด้วย
+            is_batch_print=True  # flag เพื่อแสดงว่าเป็นการพิมพ์จาก Batch
+        )
+
     @app.route("/export_picking.xlsx")
     @login_required
     def export_picking_excel():
@@ -1977,6 +2158,36 @@ def create_app():
                 flash("ลบข้อมูลออเดอร์ทั้งหมดแล้ว", "danger")
             return redirect(url_for("dashboard"))
         return render_template("clear_confirm.html")
+
+    # =============================
+    # QR Code Generation
+    # =============================
+
+    @app.route("/qr/<path:text>")
+    def generate_qr(text):
+        """
+        Generate QR Code image for any text
+        Usage: /qr/BATCH-ID or /qr/SKU-001
+        """
+        # Create QR Code
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_H,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(text)
+        qr.make(fit=True)
+
+        # Generate image
+        img = qr.make_image(fill_color="black", back_color="white")
+
+        # Save to BytesIO
+        img_io = BytesIO()
+        img.save(img_io, 'PNG')
+        img_io.seek(0)
+
+        return send_file(img_io, mimetype='image/png')
 
     # =============================
     # Warehouse Scanning Routes

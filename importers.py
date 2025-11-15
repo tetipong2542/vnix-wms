@@ -18,6 +18,7 @@ COMMON_QTY        = ["quantity","Quantity","Qty","จำนวน","จำนว
 COMMON_ORDER_TIME = ["createdAt","create_time","created_time","Order Time","OrderDate","Order Date","วันที่สั่งซื้อ","Paid Time","paid_time","Created Time","createTime","Created Time"]
 COMMON_LOGISTICS  = ["logistic_type","Logistics Service","Shipping Provider","ประเภทขนส่ง","Shipment Method","Delivery Type"]
 COMMON_CARRIER    = ["Carrier","Shipping Carrier","carrier","ผู้ให้บริการขนส่ง","Shipment Provider"]
+COMMON_TRACKING   = ["Tracking Number","tracking_number","tracking","Tracking No","Tracking No.","เลข Tracking","AWB","tracking_no","trackingNo","Tracking Code"]
 
 # >>> ขยายตัวเลือกหัวคอลัมน์สต็อก (กันเคสหลากหลาย/ภาษาไทย-อังกฤษ)
 COMMON_STOCK_SKU  = [
@@ -204,6 +205,7 @@ def import_orders(df: pd.DataFrame, platform: str, shop_name: str, import_date: 
     time_col  = first_existing(df, COMMON_ORDER_TIME)
     logi_col  = first_existing(df, COMMON_LOGISTICS)
     carrier_col = first_existing(df, COMMON_CARRIER)  # FR-02: dedicated carrier column
+    tracking_col = first_existing(df, COMMON_TRACKING)  # Tracking number column
 
     if not order_col or not sku_col:
         raise ValueError("ไม่พบคอลัมน์ Order ID หรือ SKU ในไฟล์")
@@ -242,15 +244,17 @@ def import_orders(df: pd.DataFrame, platform: str, shop_name: str, import_date: 
             "time": row.get(time_col) if time_col else None,
             "logi": clean_value(row.get(logi_col, "")) if logi_col else "",
             "carrier": clean_value(row.get(carrier_col, "")) if carrier_col else "",  # FR-02
+            "tracking": clean_value(row.get(tracking_col, "")) if tracking_col else "",  # Tracking number
         })
         rec["qty"] += max(qty, 0)
         # เก็บชื่อสินค้าล่าสุดถ้าอันเดิมว่าง
         if not rec.get("name"):
             rec["name"] = clean_value(row.get(name_col, ""))
-        # เวลา/โลจิสติกส์/carrier เก็บอันล่าสุดที่เจอ
+        # เวลา/โลจิสติกส์/carrier/tracking เก็บอันล่าสุดที่เจอ
         rec["time"] = row.get(time_col) if time_col else rec.get("time")
         rec["logi"] = clean_value(row.get(logi_col, "")) if logi_col else rec.get("logi", "")
         rec["carrier"] = clean_value(row.get(carrier_col, "")) if carrier_col else rec.get("carrier", "")
+        rec["tracking"] = clean_value(row.get(tracking_col, "")) if tracking_col else rec.get("tracking", "")
         grouped[key] = rec
 
     added = 0
@@ -288,6 +292,7 @@ def import_orders(df: pd.DataFrame, platform: str, shop_name: str, import_date: 
             order_time=order_time,
             logistic_type=rec.get("logi", ""),
             carrier=carrier,  # FR-02: standardized carrier
+            tracking_number=rec.get("tracking", ""),  # Tracking number from import
             batch_status="pending_batch",  # FR-03: default status
             imported_at=datetime.now(TH_TZ),
             import_date=import_date,

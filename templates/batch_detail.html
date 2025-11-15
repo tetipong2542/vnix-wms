@@ -16,12 +16,64 @@
       <a href="{{ url_for('batch_list') }}" class="btn btn-secondary">
         <i data-lucide="arrow-left"></i> กลับไปรายการ Batch
       </a>
+      <a href="{{ url_for('batch_print_warehouse', batch_id=batch.batch_id) }}" class="btn btn-primary" target="_blank">
+        <i data-lucide="printer"></i> พิมพ์ใบงานคลัง
+      </a>
+      <a href="{{ url_for('batch_print_picking', batch_id=batch.batch_id) }}" class="btn btn-warning" target="_blank">
+        <i data-lucide="package-check"></i> พิมพ์ Picking List
+      </a>
       <a href="{{ url_for('batch_export_excel', batch_id=batch.batch_id) }}" class="btn btn-success">
         <i data-lucide="file-spreadsheet"></i> Export Excel
       </a>
       <a href="{{ url_for('batch_summary_json', batch_id=batch.batch_id) }}" class="btn btn-info" target="_blank">
         <i data-lucide="file-code"></i> JSON API
       </a>
+    </div>
+  </div>
+
+  <!-- QR Code for Scanning -->
+  <div class="row mb-4">
+    <div class="col-12">
+      <div class="card border-warning border-3 shadow-sm">
+        <div class="card-body">
+          <div class="row align-items-center">
+            <div class="col-md-3 text-center">
+              <div class="p-3 bg-white d-inline-block rounded">
+                <img src="{{ url_for('generate_qr', text=batch.batch_id) }}"
+                     alt="QR Code for {{ batch.batch_id }}"
+                     id="batch-qr-image"
+                     style="width: 200px; height: 200px; display: block;">
+              </div>
+              <p class="mt-2 mb-0 small text-muted"><strong>{{ batch.batch_id }}</strong></p>
+              <p class="mt-1 mb-0 small text-muted">สแกนเพื่อรับงาน Batch</p>
+            </div>
+            <div class="col-md-9">
+              <h4 class="mb-3">
+                <i data-lucide="qr-code" style="width: 24px; height: 24px;"></i>
+                QR Code สำหรับรับงาน
+              </h4>
+              <div class="alert alert-info mb-3">
+                <h6 class="alert-heading">วิธีใช้งาน:</h6>
+                <ol class="mb-0 small">
+                  <li>พนักงานคลังสแกน QR Code นี้ที่หน้า <strong>"สแกนรับงาน (Batch)"</strong></li>
+                  <li>ระบบจะบันทึกว่าพนักงานคนนั้นรับงาน Batch นี้แล้ว</li>
+                  <li>จากนั้นไปที่หน้า <strong>"สแกนหยิบของ (SKU)"</strong> เพื่อเริ่มหยิบสินค้า</li>
+                </ol>
+              </div>
+              <div class="d-flex gap-2">
+                <a href="{{ url_for('scan_batch') }}" class="btn btn-warning" target="_blank">
+                  <i data-lucide="scan" style="width: 16px; height: 16px;"></i>
+                  เปิดหน้าสแกนรับงาน
+                </a>
+                <button class="btn btn-outline-secondary" onclick="window.print()">
+                  <i data-lucide="printer" style="width: 16px; height: 16px;"></i>
+                  พิมพ์ QR Code
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -195,6 +247,7 @@
 
 <script>
 $(document).ready(function() {
+  // Initialize DataTable
   $('#ordersTable').DataTable({
     pageLength: 50,
     order: [[0, 'asc']],
@@ -202,6 +255,43 @@ $(document).ready(function() {
       url: '//cdn.datatables.net/plug-ins/1.13.8/i18n/th.json'
     }
   });
+
+  // Refresh icons after page load
+  if (window.refreshIcons) {
+    setTimeout(window.refreshIcons, 100);
+  }
 });
 </script>
+
+<style>
+@media print {
+  /* Hide everything except QR code section when printing */
+  body * {
+    visibility: hidden;
+  }
+
+  #batch-qr-image, #batch-qr-image + p {
+    visibility: visible;
+  }
+
+  #batch-qr-image {
+    position: absolute;
+    left: 50%;
+    top: 30%;
+    transform: translate(-50%, -50%);
+    width: 300px !important;
+    height: 300px !important;
+  }
+
+  #batch-qr-image + p {
+    position: absolute;
+    left: 50%;
+    top: 55%;
+    transform: translate(-50%, 0);
+    font-size: 28px;
+    font-weight: bold;
+    color: #000;
+  }
+}
+</style>
 {% endblock %}

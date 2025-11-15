@@ -419,6 +419,7 @@
         </h4>
       </div>
       <div class="d-flex gap-2">
+        {% if not is_batch_print %}
         <form method="post" action="{{ url_for('print_warehouse_commit') }}" class="d-inline" id="printForm">
           <input type="hidden" name="platform" value="{{ platform_sel or '' }}">
           <input type="hidden" name="shop_id" value="{{ shop_sel or '' }}">
@@ -436,16 +437,29 @@
         <a class="btn btn-outline-secondary" href="{{ url_for('print_warehouse', platform=platform_sel, shop_id=shop_sel, logistic=logistic_sel) }}">
           <i data-lucide="refresh-cw"></i> รีเฟรช
         </a>
+        {% else %}
+        <a class="btn btn-outline-secondary" href="{{ url_for('batch_detail', batch_id=batch.batch_id) }}">
+          <i data-lucide="arrow-left"></i> กลับไปหน้า Batch
+        </a>
+        {% endif %}
         <button class="btn btn-primary" onclick="window.print()">
           <i data-lucide="printer"></i> พิมพ์ตัวอย่าง
         </button>
       </div>
     </div>
 
+    {% if is_batch_print and batch %}
+    <div class="alert-modern alert-success">
+      <i data-lucide="package"></i>
+      <strong> กำลังดู Batch: {{ batch.batch_id }}</strong> —
+      แสดงเฉพาะออเดอร์ใน Batch นี้ ({{ batch.platform }} • Run {{ batch.run_no }} • {{ batch.total_orders }} ออเดอร์)
+    </div>
+    {% else %}
     <div class="alert-modern alert-info">
       <i data-lucide="info"></i>
       <strong> โหมดตัวอย่าง (Preview Mode)</strong> — จะไม่ล็อกงานจนกว่าจะกด "พิมพ์และล็อกงาน"
     </div>
+    {% endif %}
 
     <!-- Flash Messages -->
     {% with messages = get_flashed_messages(with_categories=true) %}
@@ -616,6 +630,28 @@
 
   <!-- Document Title -->
   <div class="document-title">ใบงานคลัง (Warehouse Job Sheet)</div>
+
+  <!-- Batch ID (when printing from batch) -->
+  {% if is_batch_print and batch %}
+  <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin: 8px 0; padding: 8px; background: #eff6ff; border: 2px solid #2563eb; border-radius: 4px;">
+    <!-- QR Code -->
+    <div style="flex-shrink: 0;">
+      <img src="{{ url_for('generate_qr', text=batch.batch_id) }}"
+           alt="QR Code for {{ batch.batch_id }}"
+           style="width: 60px; height: 60px; display: block; border: 1px solid #2563eb;">
+    </div>
+    <!-- Batch Info -->
+    <div style="text-align: left;">
+      <div style="font-size: 9pt; font-weight: 700; color: #1e40af;">
+        <i data-lucide="package" style="width: 16px; height: 16px;"></i>
+        Batch ID: {{ batch.batch_id }}
+      </div>
+      <div style="font-size: 7pt; color: #4b5563; margin-top: 2px;">
+        Platform: {{ batch.platform }} | Run: R{{ batch.run_no }} | Orders: {{ batch.total_orders }}
+      </div>
+    </div>
+  </div>
+  {% endif %}
 
   <!-- Summary Box -->
   <div class="summary-box">
