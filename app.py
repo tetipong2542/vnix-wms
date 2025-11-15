@@ -955,17 +955,20 @@ def create_app():
         batch_progress = {}
         for batch in batches:
             total = OrderLine.query.filter_by(batch_id=batch.batch_id).count()
-            dispatched = OrderLine.query.filter_by(
-                batch_id=batch.batch_id,
-                dispatch_status="dispatched"
+
+            # ✅ แก้ไข: นับทั้ง dispatched, ready, และ partial_ready (shortage) เป็น completed
+            # เพราะทั้ง 3 สถานะถือว่า "เสร็จ" ในแง่ของ picking progress
+            completed = OrderLine.query.filter(
+                OrderLine.batch_id == batch.batch_id,
+                OrderLine.dispatch_status.in_(['dispatched', 'ready', 'partial_ready'])
             ).count()
 
             if total > 0:
-                progress_percent = (dispatched / total) * 100
+                progress_percent = (completed / total) * 100
                 batch_progress[batch.batch_id] = {
                     "total": total,
-                    "dispatched": dispatched,
-                    "pending": total - dispatched,
+                    "dispatched": completed,  # เปลี่ยนชื่อให้สอดคล้องกับการใช้งานเดิม
+                    "pending": total - completed,
                     "percent": round(progress_percent, 1)
                 }
             else:
@@ -1069,7 +1072,12 @@ def create_app():
 
             sku_progress[order.sku]["total_need"] += order.qty
             sku_progress[order.sku]["total_picked"] += (order.picked_qty or 0)
-            sku_progress[order.sku]["total_shortage"] += getattr(order, 'shortage_qty', 0) or 0
+
+            # ✅ แก้ไข: คำนวณ shortage จาก dispatch_status = "partial_ready" และหยิบไม่ครบ
+            # เพราะ shortage_qty field ไม่มีใน model จริง
+            if order.dispatch_status == "partial_ready":
+                shortage = order.qty - (order.picked_qty or 0)
+                sku_progress[order.sku]["total_shortage"] += shortage
 
         # คำนวณสถานะและเรียงลำดับ
         sku_list = []
