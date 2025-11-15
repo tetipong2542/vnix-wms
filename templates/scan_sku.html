@@ -34,6 +34,25 @@
             </div>
           </div>
 
+          <!-- Quick Assign SKUs -->
+          <div class="mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <label class="form-label mb-0">
+                <i data-lucide="zap" style="width: 16px; height: 16px;"></i>
+                Quick Assign - SKU ที่ต้องหยิบ (จาก Batch ที่คุณรับงาน):
+              </label>
+              <button class="btn btn-sm btn-outline-secondary" onclick="loadQuickAssignSKUs()">
+                <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i>
+              </button>
+            </div>
+            <div id="quick-assign-sku-container">
+              <div class="text-center text-muted py-3">
+                <div class="spinner-border spinner-border-sm" role="status"></div>
+                <p class="small mt-2 mb-0">กำลังโหลด...</p>
+              </div>
+            </div>
+          </div>
+
           <!-- SKU Info Display -->
           <div id="sku-info-container" style="display: none;">
             <div class="card border-primary mb-3">
@@ -561,9 +580,100 @@ function resetSKU() {
   if (window.refreshIcons) window.refreshIcons();
 }
 
+// Quick Assign: โหลด SKU ที่ต้องหยิบ
+function loadQuickAssignSKUs() {
+  const container = document.getElementById('quick-assign-sku-container');
+  container.innerHTML = '<div class="text-center text-muted py-3"><div class="spinner-border spinner-border-sm"></div><p class="small mt-2 mb-0">กำลังโหลด...</p></div>';
+
+  fetch('/api/quick-assign/skus')
+    .then(response => response.json())
+    .then(data => {
+      if (data.success && data.batches && data.batches.length > 0) {
+        let html = '<div class="accordion" id="quickAssignAccordion">';
+
+        data.batches.forEach((batch, index) => {
+          const collapseId = `collapse-${index}`;
+          const isFirst = index === 0;
+
+          html += `
+            <div class="accordion-item">
+              <h2 class="accordion-header">
+                <button class="accordion-button ${isFirst ? '' : 'collapsed'}" type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}">
+                  <div class="w-100 d-flex justify-content-between align-items-center pe-3">
+                    <div>
+                      <strong>${batch.batch_id}</strong>
+                      <small class="text-muted ms-2">${batch.platform} • R${batch.run_no}</small>
+                    </div>
+                    <span class="badge bg-primary">${batch.skus.length} SKU</span>
+                  </div>
+                </button>
+              </h2>
+              <div id="${collapseId}" class="accordion-collapse collapse ${isFirst ? 'show' : ''}" data-bs-parent="#quickAssignAccordion">
+                <div class="accordion-body p-2">
+                  <div class="d-flex flex-wrap gap-1">
+          `;
+
+          batch.skus.forEach(sku => {
+            const percent = ((sku.total_picked / sku.total_need) * 100).toFixed(0);
+            html += `
+              <button class="btn btn-outline-success btn-sm" onclick="quickAssignSKU('${sku.sku}')" style="min-width: 150px;">
+                <div class="text-start w-100">
+                  <div class="fw-bold small">${sku.sku}</div>
+                  <div class="d-flex justify-content-between align-items-center">
+                    <small class="text-muted">${sku.brand || sku.model || sku.item_name.substring(0, 15)}</small>
+                    <span class="badge bg-warning text-dark">${sku.remaining}</span>
+                  </div>
+                  <div class="progress mt-1" style="height: 3px;">
+                    <div class="progress-bar bg-success" style="width: ${percent}%"></div>
+                  </div>
+                </div>
+              </button>
+            `;
+          });
+
+          html += `
+                  </div>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+
+        html += '</div>';
+        container.innerHTML = html;
+      } else {
+        container.innerHTML = '<div class="alert alert-info mb-0 small">ไม่มี SKU ที่ต้องหยิบ (กรุณารับงาน Batch ก่อน)</div>';
+      }
+    })
+    .catch(err => {
+      console.error('Load Quick Assign SKUs Error:', err);
+      container.innerHTML = '<div class="alert alert-danger mb-0 small">เกิดข้อผิดพลาด: ' + err.message + '</div>';
+    })
+    .finally(() => {
+      if (window.refreshIcons) window.refreshIcons();
+    });
+}
+
+// Quick Assign: ใส่ SKU ลงใน input
+function quickAssignSKU(sku) {
+  document.getElementById('sku-input').value = sku;
+
+  // เลื่อนไปที่ input field
+  document.getElementById('sku-input').focus();
+  document.getElementById('sku-input').scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  // ทำให้ input กระพริบ
+  const input = document.getElementById('sku-input');
+  input.classList.add('bg-warning', 'bg-opacity-25');
+  setTimeout(() => {
+    input.classList.remove('bg-warning', 'bg-opacity-25');
+  }, 500);
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', function() {
   initScanner();
+  loadQuickAssignSKUs(); // โหลด Quick Assign ตอนเริ่มต้น
 
   document.getElementById('sku-input').addEventListener('keypress', function(e) {
     if (e.key === 'Enter') {

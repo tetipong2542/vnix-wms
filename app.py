@@ -2372,6 +2372,39 @@ def create_app():
         """หน้าสแกน Batch QR เพื่อรับงาน"""
         return render_template("scan_batch.html")
 
+    @app.route("/api/quick-assign/batches")
+    @login_required
+    def api_quick_assign_batches():
+        """API สำหรับดึง Batch ที่ยังไม่เสร็จ (Quick Assign)"""
+        # หา Batch ที่ยังมีออเดอร์ที่ไม่ได้ dispatch
+        batches = db.session.query(Batch).join(
+            OrderLine, Batch.batch_id == OrderLine.batch_id
+        ).filter(
+            OrderLine.dispatch_status != "dispatched"
+        ).group_by(Batch.batch_id).order_by(Batch.created_at.desc()).limit(10).all()
+
+        result = []
+        for batch in batches:
+            # นับออเดอร์ที่ยังไม่เสร็จ
+            pending_orders = OrderLine.query.filter(
+                OrderLine.batch_id == batch.batch_id,
+                OrderLine.dispatch_status != "dispatched"
+            ).count()
+
+            total_orders = OrderLine.query.filter_by(batch_id=batch.batch_id).count()
+
+            result.append({
+                "batch_id": batch.batch_id,
+                "platform": batch.platform,
+                "run_no": batch.run_no,
+                "total_orders": total_orders,
+                "pending_orders": pending_orders,
+                "created_at": batch.created_at.isoformat() if batch.created_at else None,
+                "created_by": batch.created_by_username
+            })
+
+        return jsonify({"success": True, "batches": result})
+
     @app.route("/api/scan/batch", methods=["POST"])
     @login_required
     def api_scan_batch():
@@ -2435,6 +2468,67 @@ def create_app():
     def scan_sku():
         """หน้าสแกน SKU เพื่อหยิบสินค้า"""
         return render_template("scan_sku.html")
+
+    @app.route("/api/quick-assign/skus")
+    @login_required
+    def api_quick_assign_skus():
+        """API สำหรับดึง Batch และ SKU ที่ยังต้องหยิบ (Quick Assign)"""
+        cu = current_user()
+
+        # หา Batch ที่ user รับงานแล้ว และยังมี SKU ที่ต้องหยิบ
+        from sqlalchemy import func
+
+        # Query: หา SKU ที่ยังต้องหยิบ (picked_qty < qty)
+        pending_skus = db.session.query(
+            OrderLine.batch_id,
+            OrderLine.sku,
+            func.sum(OrderLine.qty).label('total_need'),
+            func.sum(OrderLine.picked_qty).label('total_picked'),
+            func.max(Product.brand).label('brand'),
+            func.max(Product.model).label('model'),
+            func.max(OrderLine.item_name).label('item_name')
+        ).outerjoin(
+            Product, OrderLine.sku == Product.sku
+        ).filter(
+            OrderLine.accepted == True,
+            OrderLine.accepted_by_user_id == cu.id,  # รับงานโดย user นี้
+            OrderLine.dispatch_status != "dispatched"
+        ).group_by(
+            OrderLine.batch_id, OrderLine.sku
+        ).having(
+            func.sum(OrderLine.picked_qty) < func.sum(OrderLine.qty)  # ยังหยิบไม่ครบ
+        ).order_by(
+            OrderLine.batch_id.desc(), OrderLine.sku
+        ).limit(20).all()
+
+        # จัดกลุ่มตาม Batch
+        from collections import defaultdict
+        batches_dict = defaultdict(list)
+
+        for row in pending_skus:
+            batch_id = row.batch_id
+            batches_dict[batch_id].append({
+                "sku": row.sku,
+                "brand": row.brand or "",
+                "model": row.model or "",
+                "item_name": row.item_name or "",
+                "total_need": row.total_need or 0,
+                "total_picked": row.total_picked or 0,
+                "remaining": (row.total_need or 0) - (row.total_picked or 0)
+            })
+
+        # สร้าง result
+        result = []
+        for batch_id, skus in batches_dict.items():
+            batch = Batch.query.filter_by(batch_id=batch_id).first()
+            result.append({
+                "batch_id": batch_id,
+                "platform": batch.platform if batch else "",
+                "run_no": batch.run_no if batch else 0,
+                "skus": skus
+            })
+
+        return jsonify({"success": True, "batches": result})
 
     @app.route("/api/scan/sku", methods=["POST"])
     @login_required
