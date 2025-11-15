@@ -319,101 +319,141 @@ function submitSKU(sku = null) {
 }
 
 function showSKUInfo(data) {
-  document.getElementById('info-sku').textContent = data.sku;
-  document.getElementById('info-brand').textContent = data.brand || '-';
-  document.getElementById('info-model').textContent = data.model || '-';
-  document.getElementById('info-stock').textContent = data.stock_qty;
-  document.getElementById('info-need').textContent = data.total_need;
-  document.getElementById('info-picked').textContent = data.total_picked;
-  document.getElementById('info-shortage').textContent = data.total_shortage || 0;
-  document.getElementById('info-remaining').textContent = data.total_remaining;
+  // ⚠️ Null check: ตรวจสอบว่า elements มีอยู่จริงก่อน set textContent (แก้ไข bug หลัง reset)
+  const safeSetText = (id, value) => {
+    const element = document.getElementById(id);
+    if (element) {
+      element.textContent = value;
+    } else {
+      console.warn(`Element #${id} not found, skipping...`);
+    }
+  };
+
+  safeSetText('info-sku', data.sku);
+  safeSetText('info-brand', data.brand || '-');
+  safeSetText('info-model', data.model || '-');
+  safeSetText('info-stock', data.stock_qty);
+  safeSetText('info-need', data.total_need);
+  safeSetText('info-picked', data.total_picked);
+  safeSetText('info-shortage', data.total_shortage || 0);
+  safeSetText('info-remaining', data.total_remaining);
 
   // ⚠️ ตั้งค่า MAX quantity ที่สามารถหยิบได้ (จำกัดตามที่ระบบต้องการ)
   const maxQty = Math.min(data.stock_qty, data.total_remaining);
   const pickQtyInput = document.getElementById('pick-qty');
-  pickQtyInput.max = maxQty;
-  document.getElementById('max-qty-display').textContent = maxQty;
+  if (pickQtyInput) {
+    pickQtyInput.max = maxQty;
+  }
+  safeSetText('max-qty-display', maxQty);
 
   // แสดง stock warning ถ้าสต็อกไม่พอ และป้องกันการหยิบเกิน
   const confirmPickBtn = document.querySelector('.btn-success.btn-lg');
 
   if (!data.can_fulfill && data.total_remaining > 0) {
-    document.getElementById('stock-available').textContent = data.stock_qty;
-    document.getElementById('stock-needed').textContent = data.total_remaining;
-    document.getElementById('stock-warning').style.display = 'block';
-    document.getElementById('mark-shortage-btn').style.display = 'block';
-    document.getElementById('picking-status-alert').classList.remove('alert-info');
-    document.getElementById('picking-status-alert').classList.add('alert-warning');
+    safeSetText('stock-available', data.stock_qty);
+    safeSetText('stock-needed', data.total_remaining);
+
+    const stockWarning = document.getElementById('stock-warning');
+    const markShortageBtn = document.getElementById('mark-shortage-btn');
+    const pickingStatusAlert = document.getElementById('picking-status-alert');
+
+    if (stockWarning) stockWarning.style.display = 'block';
+    if (markShortageBtn) markShortageBtn.style.display = 'block';
+    if (pickingStatusAlert) {
+      pickingStatusAlert.classList.remove('alert-info');
+      pickingStatusAlert.classList.add('alert-warning');
+    }
 
     // ตั้งค่า suggested quantity
-    pickQtyInput.value = data.suggested_pick_qty;
+    if (pickQtyInput) pickQtyInput.value = data.suggested_pick_qty;
 
     // ⚠️ DISABLE ปุ่มยืนยันการหยิบถ้าสต็อกไม่พอ (ป้องกันการมักง่าย)
-    if (data.stock_qty === 0) {
-      confirmPickBtn.disabled = true;
-      confirmPickBtn.classList.remove('btn-success');
-      confirmPickBtn.classList.add('btn-secondary');
-      confirmPickBtn.innerHTML = '<i data-lucide="x-circle" style="width: 20px; height: 20px;"></i> สต็อกหมด - กรุณา Mark as Shortage';
-    } else if (data.stock_qty < data.total_remaining) {
-      // มีสต็อกบ้าง แต่ไม่พอ - อนุญาตให้หยิบได้แค่ที่มี
-      confirmPickBtn.disabled = false;
-      confirmPickBtn.classList.remove('btn-secondary');
-      confirmPickBtn.classList.add('btn-warning');
-      confirmPickBtn.innerHTML = '<i data-lucide="alert-triangle" style="width: 20px; height: 20px;"></i> ยืนยันการหยิบ (บางส่วน)';
+    if (confirmPickBtn) {
+      if (data.stock_qty === 0) {
+        confirmPickBtn.disabled = true;
+        confirmPickBtn.classList.remove('btn-success');
+        confirmPickBtn.classList.add('btn-secondary');
+        confirmPickBtn.innerHTML = '<i data-lucide="x-circle" style="width: 20px; height: 20px;"></i> สต็อกหมด - กรุณา Mark as Shortage';
+      } else if (data.stock_qty < data.total_remaining) {
+        // มีสต็อกบ้าง แต่ไม่พอ - อนุญาตให้หยิบได้แค่ที่มี
+        confirmPickBtn.disabled = false;
+        confirmPickBtn.classList.remove('btn-secondary');
+        confirmPickBtn.classList.add('btn-warning');
+        confirmPickBtn.innerHTML = '<i data-lucide="alert-triangle" style="width: 20px; height: 20px;"></i> ยืนยันการหยิบ (บางส่วน)';
+      }
     }
   } else {
-    document.getElementById('stock-warning').style.display = 'none';
-    document.getElementById('mark-shortage-btn').style.display = 'none';
-    document.getElementById('picking-status-alert').classList.remove('alert-warning');
-    document.getElementById('picking-status-alert').classList.add('alert-info');
+    const stockWarning = document.getElementById('stock-warning');
+    const markShortageBtn = document.getElementById('mark-shortage-btn');
+    const pickingStatusAlert = document.getElementById('picking-status-alert');
+
+    if (stockWarning) stockWarning.style.display = 'none';
+    if (markShortageBtn) markShortageBtn.style.display = 'none';
+    if (pickingStatusAlert) {
+      pickingStatusAlert.classList.remove('alert-warning');
+      pickingStatusAlert.classList.add('alert-info');
+    }
 
     // เปิดใช้งานปุ่มยืนยันการหยิบปกติ
-    confirmPickBtn.disabled = false;
-    confirmPickBtn.classList.remove('btn-secondary', 'btn-warning');
-    confirmPickBtn.classList.add('btn-success');
-    confirmPickBtn.innerHTML = '<i data-lucide="check-circle" style="width: 20px; height: 20px;"></i> ยืนยันการหยิบ';
+    if (confirmPickBtn) {
+      confirmPickBtn.disabled = false;
+      confirmPickBtn.classList.remove('btn-secondary', 'btn-warning');
+      confirmPickBtn.classList.add('btn-success');
+      confirmPickBtn.innerHTML = '<i data-lucide="check-circle" style="width: 20px; height: 20px;"></i> ยืนยันการหยิบ';
+    }
 
     // ตั้งค่า default quantity
-    pickQtyInput.value = Math.min(data.total_remaining, 1);
+    if (pickQtyInput) pickQtyInput.value = Math.min(data.total_remaining, 1);
   }
 
   // แสดงรายการออเดอร์
   if (data.orders && data.orders.length > 0) {
     const tbody = document.getElementById('orders-table-body');
-    tbody.innerHTML = '';
+    if (tbody) {
+      tbody.innerHTML = '';
 
-    data.orders.forEach(order => {
-      const statusBadge = {
-        'ready': '<span class="badge bg-success">พร้อมส่ง</span>',
-        'partial_ready': '<span class="badge bg-warning text-dark">บางส่วน</span>',
-        'pending': '<span class="badge bg-secondary">รอหยิบ</span>'
-      }[order.status] || `<span class="badge bg-secondary">${order.status}</span>`;
+      data.orders.forEach(order => {
+        const statusBadge = {
+          'ready': '<span class="badge bg-success">พร้อมส่ง</span>',
+          'partial_ready': '<span class="badge bg-warning text-dark">บางส่วน</span>',
+          'pending': '<span class="badge bg-secondary">รอหยิบ</span>'
+        }[order.status] || `<span class="badge bg-secondary">${order.status}</span>`;
 
-      const row = `
-        <tr>
-          <td>${order.order_id}</td>
-          <td class="text-center">${order.qty}</td>
-          <td class="text-center ${order.picked_qty > 0 ? 'text-success fw-bold' : ''}">${order.picked_qty}</td>
-          <td class="text-center ${order.shortage_qty > 0 ? 'text-danger fw-bold' : ''}">${order.shortage_qty}</td>
-          <td>${statusBadge}</td>
-        </tr>
-      `;
-      tbody.innerHTML += row;
-    });
+        const row = `
+          <tr>
+            <td>${order.order_id}</td>
+            <td class="text-center">${order.qty}</td>
+            <td class="text-center ${order.picked_qty > 0 ? 'text-success fw-bold' : ''}">${order.picked_qty}</td>
+            <td class="text-center ${order.shortage_qty > 0 ? 'text-danger fw-bold' : ''}">${order.shortage_qty}</td>
+            <td>${statusBadge}</td>
+          </tr>
+        `;
+        tbody.innerHTML += row;
+      });
+    }
 
-    document.getElementById('orders-list').style.display = 'block';
+    const ordersList = document.getElementById('orders-list');
+    if (ordersList) ordersList.style.display = 'block';
   } else {
-    document.getElementById('orders-list').style.display = 'none';
+    const ordersList = document.getElementById('orders-list');
+    if (ordersList) ordersList.style.display = 'none';
   }
 
-  document.getElementById('sku-info-container').style.display = 'block';
-  document.getElementById('scanner-container').style.display = 'none';
+  const skuInfoContainer = document.getElementById('sku-info-container');
+  const scannerContainer = document.getElementById('scanner-container');
+  if (skuInfoContainer) skuInfoContainer.style.display = 'block';
+  if (scannerContainer) scannerContainer.style.display = 'none';
 
   if (window.refreshIcons) window.refreshIcons();
 }
 
 function adjustQty(amount) {
   const input = document.getElementById('pick-qty');
+  if (!input) {
+    console.warn('pick-qty input not found');
+    return;
+  }
+
   const currentVal = parseInt(input.value || 0);
   const newVal = currentVal + amount;
   const maxVal = parseInt(input.max || 999999);
