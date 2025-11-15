@@ -55,6 +55,33 @@
                     <p class="mb-0"><strong>จำนวนสินค้า:</strong> <span id="info-item-count"></span> รายการ</p>
                   </div>
                 </div>
+
+                <!-- Picking Summary (Partial Picking Support) -->
+                <div id="picking-summary" style="display: none;" class="mt-3 pt-3 border-top">
+                  <h6 class="mb-2">สรุปการหยิบสินค้า:</h6>
+                  <div class="row">
+                    <div class="col-md-4">
+                      <p class="mb-1"><strong>ต้องการ:</strong> <span id="info-total-qty" class="text-primary"></span> ชิ้น</p>
+                    </div>
+                    <div class="col-md-4">
+                      <p class="mb-1"><strong>หยิบแล้ว:</strong> <span id="info-picked-qty" class="text-success"></span> ชิ้น</p>
+                    </div>
+                    <div class="col-md-4">
+                      <p class="mb-1"><strong>ขาด:</strong> <span id="info-shortage-qty" class="text-danger fw-bold"></span> ชิ้น</p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Shortage Items List -->
+                <div id="shortage-list" style="display: none;" class="mt-3">
+                  <div class="alert alert-warning">
+                    <h6 class="alert-heading">
+                      <i data-lucide="alert-triangle" style="width: 16px; height: 16px;"></i>
+                      สินค้าที่ขาด
+                    </h6>
+                    <div id="shortage-items-container"></div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -265,8 +292,34 @@ function showOrderInfo(data) {
   document.getElementById('info-carrier').textContent = data.carrier || '-';
   document.getElementById('info-item-count').textContent = data.item_count;
 
-  // Status badge
+  // Show picking summary if available
+  if (data.total_qty !== undefined) {
+    document.getElementById('info-total-qty').textContent = data.total_qty;
+    document.getElementById('info-picked-qty').textContent = data.total_picked || 0;
+    document.getElementById('info-shortage-qty').textContent = data.total_shortage || 0;
+    document.getElementById('picking-summary').style.display = 'block';
+  } else {
+    document.getElementById('picking-summary').style.display = 'none';
+  }
+
+  // Show shortage items list if any
+  if (data.shortage_items && data.shortage_items.length > 0) {
+    const container = document.getElementById('shortage-items-container');
+    let html = '<ul class="mb-0">';
+    data.shortage_items.forEach(item => {
+      html += `<li><strong>${item.sku}</strong> - ${item.item_name || 'สินค้า'}: ขาด <span class="text-danger fw-bold">${item.shortage_qty}</span> ชิ้น (หยิบแล้ว ${item.picked_qty}/${item.total_qty})</li>`;
+    });
+    html += '</ul>';
+    container.innerHTML = html;
+    document.getElementById('shortage-list').style.display = 'block';
+  } else {
+    document.getElementById('shortage-list').style.display = 'none';
+  }
+
+  // Status badge with new statuses
   const statusBadge = document.getElementById('info-status-badge');
+  const statusMessage = data.status_message || data.status;
+
   if (data.status === 'dispatched') {
     statusBadge.innerHTML = '<span class="badge bg-secondary">ส่งไปแล้ว</span>';
     document.getElementById('already-dispatched').style.display = 'block';
@@ -277,6 +330,22 @@ function showOrderInfo(data) {
     document.getElementById('dispatch-actions').style.display = 'block';
     document.getElementById('already-dispatched').style.display = 'none';
     document.getElementById('not-ready').style.display = 'none';
+  } else if (data.status === 'partial_ready') {
+    statusBadge.innerHTML = '<span class="badge bg-warning text-dark">หยิบได้บางส่วน</span>';
+    document.getElementById('not-ready').style.display = 'block';
+    // Update message in not-ready section
+    const notReadyDiv = document.getElementById('not-ready');
+    notReadyDiv.querySelector('p').textContent = statusMessage;
+    document.getElementById('dispatch-actions').style.display = 'none';
+    document.getElementById('already-dispatched').style.display = 'none';
+  } else if (data.status === 'pending_refill') {
+    statusBadge.innerHTML = '<span class="badge bg-danger">รอเติมของ</span>';
+    document.getElementById('not-ready').style.display = 'block';
+    // Update message in not-ready section
+    const notReadyDiv = document.getElementById('not-ready');
+    notReadyDiv.querySelector('p').textContent = statusMessage;
+    document.getElementById('dispatch-actions').style.display = 'none';
+    document.getElementById('already-dispatched').style.display = 'none';
   } else {
     statusBadge.innerHTML = '<span class="badge bg-danger">ยังไม่พร้อม</span>';
     document.getElementById('not-ready').style.display = 'block';

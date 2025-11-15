@@ -670,7 +670,7 @@
 
     <!-- Filter Form -->
     <div class="filter-form">
-      <form class="row g-3" method="get" action="{{ url_for('picking_list') }}">
+      <form class="row g-3" method="get" action="{% if is_batch_print and batch %}{{ url_for('batch_print_picking', batch_id=batch.batch_id) }}{% else %}{{ url_for('picking_list') }}{% endif %}">
         <div class="col-md-2">
           <label class="form-label">แพลตฟอร์ม</label>
           <select class="form-select" name="platform">
@@ -727,7 +727,7 @@
               <li><label class="dropdown-item"><input type="checkbox" class="column-toggle me-2" data-column="9" checked> ขนส่ง</label></li>
               <li><label class="dropdown-item"><input type="checkbox" class="column-toggle me-2" data-column="10" checked> หมายเหตุ</label></li>
               <li><hr class="dropdown-divider"></li>
-              <li><label class="dropdown-item"><input type="checkbox" id="compactCarrierCheckbox" class="me-2"> ขนส่งแบบย่อ</label></li>
+              <li><label class="dropdown-item"><input type="checkbox" id="compactCarrierCheckbox" class="me-2" {% if compact_carrier %}checked{% endif %}> ขนส่งแบบย่อ</label></li>
             </ul>
           </div>
         </div>
@@ -735,7 +735,7 @@
           <button class="btn btn-primary flex-grow-1">
             <i data-lucide="search"></i> ดูรายงาน
           </button>
-          <a class="btn btn-outline-secondary" href="{{ url_for('picking_list') }}">
+          <a class="btn btn-outline-secondary" href="{% if is_batch_print and batch %}{{ url_for('batch_print_picking', batch_id=batch.batch_id) }}{% else %}{{ url_for('picking_list') }}{% endif %}">
             <i data-lucide="x-circle"></i> ล้าง
           </a>
         </div>
@@ -1163,11 +1163,17 @@
     const savedCompactCarrier = localStorage.getItem('pickingCompactCarrier') === 'true';
     
     // Apply compact carrier preference
-    // NOTE: Compact carrier feature is now handled by backend
-    // Badges are rendered directly with carrier names and counts
     if (compactCarrierCheckbox) {
-      // Hide the checkbox since feature is now built-in
-      compactCarrierCheckbox.closest('li').style.display = 'none';
+      compactCarrierCheckbox.addEventListener('change', function() {
+        // Reload page with compact_carrier parameter
+        const url = new URL(window.location.href);
+        if (this.checked) {
+          url.searchParams.set('compact_carrier', '1');
+        } else {
+          url.searchParams.delete('compact_carrier');
+        }
+        window.location.href = url.toString();
+      });
     }
     
     toggles.forEach(toggle => {

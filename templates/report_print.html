@@ -475,7 +475,7 @@
 
     <!-- Filter Form -->
     <div class="filter-form">
-      <form class="row g-3" method="get" action="{{ url_for('print_warehouse') }}" id="filterForm">
+      <form class="row g-3" method="get" action="{% if is_batch_print and batch %}{{ url_for('batch_print_warehouse', batch_id=batch.batch_id) }}{% else %}{{ url_for('print_warehouse') }}{% endif %}" id="filterForm">
         <div class="col-md-2">
           <label class="form-label">แพลตฟอร์ม</label>
           <select class="form-select" name="platform">
@@ -564,7 +564,7 @@
           <button class="btn btn-primary flex-grow-1">
             <i data-lucide="search"></i> ดูรายงาน
           </button>
-          <a class="btn btn-outline-secondary" href="{{ url_for('print_warehouse') }}">
+          <a class="btn btn-outline-secondary" href="{% if is_batch_print and batch %}{{ url_for('batch_print_warehouse', batch_id=batch.batch_id) }}{% else %}{{ url_for('print_warehouse') }}{% endif %}">
             <i data-lucide="x-circle"></i> ล้าง
           </a>
         </div>

@@ -49,12 +49,51 @@
                     <p class="mb-0"><strong>สต็อกคงเหลือ:</strong> <span id="info-stock" class="badge bg-info"></span></p>
                   </div>
                   <div class="col-md-6">
-                    <div class="alert alert-info mb-0">
+                    <div class="alert alert-info mb-0" id="picking-status-alert">
                       <h6 class="alert-heading">สถานะการหยิบ</h6>
                       <hr>
-                      <p class="mb-1"><strong>ต้องการ (Need):</strong> <span id="info-need" class="text-danger fs-5"></span></p>
-                      <p class="mb-1"><strong>หยิบแล้ว (Picked):</strong> <span id="info-picked" class="text-success fs-5"></span></p>
-                      <p class="mb-0"><strong>ยังต้องหยิบ (Remaining):</strong> <span id="info-remaining" class="text-warning fs-4 fw-bold"></span></p>
+                      <p class="mb-1"><strong>ต้องการ (Need):</strong> <span id="info-need" class="text-danger fs-5"></span> ชิ้น</p>
+                      <p class="mb-1"><strong>หยิบแล้ว (Picked):</strong> <span id="info-picked" class="text-success fs-5"></span> ชิ้น</p>
+                      <p class="mb-1"><strong>ขาด (Shortage):</strong> <span id="info-shortage" class="text-danger fs-5 fw-bold"></span> ชิ้น</p>
+                      <p class="mb-0"><strong>ยังต้องหยิบ (Remaining):</strong> <span id="info-remaining" class="text-warning fs-4 fw-bold"></span> ชิ้น</p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Stock Warning -->
+                <div id="stock-warning" class="mt-3" style="display: none;">
+                  <div class="alert alert-warning">
+                    <h6 class="alert-heading">
+                      <i data-lucide="alert-triangle" style="width: 16px; height: 16px;"></i>
+                      สต็อกไม่พอ!
+                    </h6>
+                    <p class="mb-0">สต็อกคงเหลือ: <strong id="stock-available"></strong> ชิ้น | ต้องการ: <strong id="stock-needed"></strong> ชิ้น</p>
+                    <hr>
+                    <p class="mb-0 small">คุณสามารถหยิบตามจำนวนที่มี และกดปุ่ม "Mark as Shortage" สำหรับส่วนที่ขาด</p>
+                  </div>
+                </div>
+
+                <!-- Orders List -->
+                <div id="orders-list" class="mt-3" style="display: none;">
+                  <div class="card">
+                    <div class="card-header bg-light">
+                      <h6 class="mb-0">ออเดอร์ที่ต้องการ SKU นี้</h6>
+                    </div>
+                    <div class="card-body p-2">
+                      <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0">
+                          <thead>
+                            <tr>
+                              <th>Order ID</th>
+                              <th class="text-center">ต้องการ</th>
+                              <th class="text-center">หยิบแล้ว</th>
+                              <th class="text-center">ขาด</th>
+                              <th>สถานะ</th>
+                            </tr>
+                          </thead>
+                          <tbody id="orders-table-body"></tbody>
+                        </table>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -92,7 +131,11 @@
                     <i data-lucide="check-circle" style="width: 20px; height: 20px;"></i>
                     ยืนยันการหยิบ
                   </button>
-                  <button class="btn btn-outline-warning" onclick="resetSKU()">
+                  <button class="btn btn-warning" onclick="markShortage()" id="mark-shortage-btn" style="display: none;">
+                    <i data-lucide="alert-circle" style="width: 16px; height: 16px;"></i>
+                    Mark as Shortage (บันทึกว่าสินค้าขาด)
+                  </button>
+                  <button class="btn btn-outline-secondary" onclick="resetSKU()">
                     <i data-lucide="x-circle" style="width: 16px; height: 16px;"></i>
                     ยกเลิก / สแกน SKU ใหม่
                   </button>
@@ -246,10 +289,58 @@ function showSKUInfo(data) {
   document.getElementById('info-stock').textContent = data.stock_qty;
   document.getElementById('info-need').textContent = data.total_need;
   document.getElementById('info-picked').textContent = data.total_picked;
+  document.getElementById('info-shortage').textContent = data.total_shortage || 0;
   document.getElementById('info-remaining').textContent = data.total_remaining;
 
-  // Set default pick quantity to remaining
-  document.getElementById('pick-qty').value = data.total_remaining;
+  // แสดง stock warning ถ้าสต็อกไม่พอ
+  if (!data.can_fulfill && data.total_remaining > 0) {
+    document.getElementById('stock-available').textContent = data.stock_qty;
+    document.getElementById('stock-needed').textContent = data.total_remaining;
+    document.getElementById('stock-warning').style.display = 'block';
+    document.getElementById('mark-shortage-btn').style.display = 'block';
+    document.getElementById('picking-status-alert').classList.remove('alert-info');
+    document.getElementById('picking-status-alert').classList.add('alert-warning');
+
+    // ตั้งค่า suggested quantity
+    document.getElementById('pick-qty').value = data.suggested_pick_qty;
+  } else {
+    document.getElementById('stock-warning').style.display = 'none';
+    document.getElementById('mark-shortage-btn').style.display = 'none';
+    document.getElementById('picking-status-alert').classList.remove('alert-warning');
+    document.getElementById('picking-status-alert').classList.add('alert-info');
+
+    // ตั้งค่า default quantity
+    document.getElementById('pick-qty').value = Math.min(data.total_remaining, 1);
+  }
+
+  // แสดงรายการออเดอร์
+  if (data.orders && data.orders.length > 0) {
+    const tbody = document.getElementById('orders-table-body');
+    tbody.innerHTML = '';
+
+    data.orders.forEach(order => {
+      const statusBadge = {
+        'ready': '<span class="badge bg-success">พร้อมส่ง</span>',
+        'partial_ready': '<span class="badge bg-warning text-dark">บางส่วน</span>',
+        'pending': '<span class="badge bg-secondary">รอหยิบ</span>'
+      }[order.status] || `<span class="badge bg-secondary">${order.status}</span>`;
+
+      const row = `
+        <tr>
+          <td>${order.order_id}</td>
+          <td class="text-center">${order.qty}</td>
+          <td class="text-center ${order.picked_qty > 0 ? 'text-success fw-bold' : ''}">${order.picked_qty}</td>
+          <td class="text-center ${order.shortage_qty > 0 ? 'text-danger fw-bold' : ''}">${order.shortage_qty}</td>
+          <td>${statusBadge}</td>
+        </tr>
+      `;
+      tbody.innerHTML += row;
+    });
+
+    document.getElementById('orders-list').style.display = 'block';
+  } else {
+    document.getElementById('orders-list').style.display = 'none';
+  }
 
   document.getElementById('sku-info-container').style.display = 'block';
   document.getElementById('scanner-container').style.display = 'none';
@@ -306,11 +397,93 @@ function confirmPick() {
 }
 
 function showSuccess(data) {
-  const message = `
+  let message = `
     <strong>SKU:</strong> ${data.sku}<br>
-    <strong>หยิบไป:</strong> ${data.qty_picked}<br>
+    <strong>หยิบไป:</strong> ${data.qty_picked} ชิ้น<br>
     <strong>ยอดรวม:</strong> Need: ${data.total_need} | Picked: ${data.total_picked} | Remaining: ${data.total_remaining}
   `;
+
+  // แสดงข้อมูล shortage ถ้ามี
+  if (data.total_shortage && data.total_shortage > 0) {
+    message += `<br><strong class="text-danger">ขาด (Shortage):</strong> ${data.total_shortage} ชิ้น`;
+  }
+
+  // แสดงรายละเอียดออเดอร์ที่หยิบ
+  if (data.picked_orders && data.picked_orders.length > 0) {
+    message += '<br><hr><small><strong>ออเดอร์ที่ได้รับผลกระทบ:</strong><ul class="mb-0 mt-1">';
+    data.picked_orders.forEach(order => {
+      if (order.status === 'complete') {
+        message += `<li class="text-success">${order.order_id}: หยิบครบ ✓</li>`;
+      } else if (order.status === 'partial') {
+        message += `<li class="text-warning">${order.order_id}: หยิบได้ ${order.picked} ชิ้น (ขาด ${order.shortage} ชิ้น)</li>`;
+      }
+    });
+    message += '</ul></small>';
+  }
+
+  document.getElementById('success-message').innerHTML = message;
+  document.getElementById('success-container').style.display = 'block';
+  document.getElementById('sku-info-container').style.display = 'none';
+
+  if (window.refreshIcons) window.refreshIcons();
+}
+
+function markShortage() {
+  if (!currentSKU) {
+    alert('กรุณาสแกน SKU ก่อน');
+    return;
+  }
+
+  if (!confirm(`ยืนยันบันทึกว่าสินค้า ${currentSKU.sku} ขาดหมดทุกออเดอร์ที่เหลือ?\n\nสินค้าที่ยังต้องหยิบ: ${currentSKU.total_remaining} ชิ้น`)) {
+    return;
+  }
+
+  isProcessing = true;
+
+  // Show loading
+  document.getElementById('sku-info-container').innerHTML = '<div class="text-center py-4"><div class="spinner-border text-warning"></div><p class="mt-2">กำลังบันทึก Shortage...</p></div>';
+
+  fetch('/api/pick/sku', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sku: currentSKU.sku,
+      qty: 0,
+      mark_shortage: true
+    })
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      showShortageSuccess(data);
+    } else {
+      showError(data.error);
+    }
+  })
+  .catch(err => {
+    showError('เกิดข้อผิดพลาด: ' + err.message);
+  })
+  .finally(() => {
+    isProcessing = false;
+  });
+}
+
+function showShortageSuccess(data) {
+  let message = `
+    <strong>SKU:</strong> ${data.sku}<br>
+    <strong class="text-danger">บันทึก Shortage:</strong> ${data.total_shortage} ชิ้น<br>
+  `;
+
+  // แสดงรายการออเดอร์ที่มี shortage
+  if (data.shortage_orders && data.shortage_orders.length > 0) {
+    message += '<hr><small><strong>ออเดอร์ที่ขาดสินค้า:</strong><ul class="mb-0 mt-1">';
+    data.shortage_orders.forEach(order => {
+      message += `<li class="text-danger">${order.order_id}: ขาด ${order.shortage} ชิ้น</li>`;
+    });
+    message += '</ul></small>';
+  }
+
+  message += '<hr><p class="small mb-0">ออเดอร์เหล่านี้จะถูกเก็บไว้ใน Batch จนกว่าจะเติมสต็อก</p>';
 
   document.getElementById('success-message').innerHTML = message;
   document.getElementById('success-container').style.display = 'block';
