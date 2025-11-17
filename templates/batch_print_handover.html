@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ใบส่งมอบพัสดุ - {{ batch.handover_code }}</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 15mm;
+    }
+
+    body {
+      font-family: 'Sarabun', 'TH Sarabun New', Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: white;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      padding: 30px;
+      border: 3px solid #198754;
+    }
+
+    .header {
+      text-align: center;
+      border-bottom: 3px solid #198754;
+      padding-bottom: 20px;
+      margin-bottom: 30px;
+    }
+
+    .header h1 {
+      margin: 0;
+      color: #198754;
+      font-size: 32px;
+      font-weight: bold;
+    }
+
+    .header .subtitle {
+      color: #666;
+      font-size: 18px;
+      margin-top: 5px;
+    }
+
+    .qr-section {
+      text-align: center;
+      margin: 30px 0;
+      padding: 20px;
+      background: #f8f9fa;
+      border: 2px dashed #198754;
+    }
+
+    .qr-section img {
+      width: 300px;
+      height: 300px;
+      margin: 20px auto;
+      display: block;
+    }
+
+    .handover-code {
+      font-size: 36px;
+      font-weight: bold;
+      color: #198754;
+      letter-spacing: 3px;
+      margin: 15px 0;
+    }
+
+    .info-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+    }
+
+    .info-table th,
+    .info-table td {
+      padding: 12px;
+      border: 1px solid #ddd;
+      text-align: left;
+    }
+
+    .info-table th {
+      background-color: #198754;
+      color: white;
+      font-weight: bold;
+      width: 30%;
+    }
+
+    .info-table td {
+      background-color: #f8f9fa;
+      font-size: 16px;
+    }
+
+    .summary-section {
+      margin: 30px 0;
+    }
+
+    .summary-section h2 {
+      color: #198754;
+      font-size: 22px;
+      border-bottom: 2px solid #198754;
+      padding-bottom: 10px;
+      margin-bottom: 15px;
+    }
+
+    .carrier-badges {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 15px 0;
+    }
+
+    .carrier-badge {
+      padding: 8px 16px;
+      border-radius: 5px;
+      font-weight: bold;
+      font-size: 16px;
+    }
+
+    .carrier-badge.spx { background: #dc3545; color: white; }
+    .carrier-badge.flash { background: #ffc107; color: black; }
+    .carrier-badge.lex { background: #0d6efd; color: white; }
+    .carrier-badge.jt { background: #198754; color: white; }
+    .carrier-badge.other { background: #6c757d; color: white; }
+
+    .shop-list {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin: 15px 0;
+    }
+
+    .shop-item {
+      padding: 10px;
+      background: #f8f9fa;
+      border-left: 4px solid #198754;
+      font-size: 14px;
+    }
+
+    .signature-section {
+      margin-top: 50px;
+      border-top: 2px solid #198754;
+      padding-top: 30px;
+    }
+
+    .signature-box {
+      display: inline-block;
+      width: 48%;
+      vertical-align: top;
+      padding: 20px;
+      border: 2px solid #ddd;
+      margin: 10px 1%;
+      min-height: 120px;
+    }
+
+    .signature-box h3 {
+      margin: 0 0 50px 0;
+      font-size: 18px;
+      color: #333;
+    }
+
+    .signature-line {
+      border-top: 1px solid #000;
+      margin-top: 10px;
+      padding-top: 5px;
+      text-align: center;
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 2px solid #198754;
+      color: #666;
+      font-size: 14px;
+    }
+
+    @media print {
+      body {
+        padding: 0;
+      }
+      .container {
+        border: none;
+        padding: 0;
+      }
+      .no-print {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <h1>ใบส่งมอบพัสดุ</h1>
+      <div class="subtitle">Batch Handover Sheet</div>
+    </div>
+
+    <!-- QR Code Section -->
+    <div class="qr-section">
+      <div style="color: #666; font-size: 18px;">สแกนรหัสนี้เพื่อยืนยันการส่งมอบ</div>
+      <img src="{{ url_for('generate_qr', text=batch.handover_code) }}" alt="QR Code">
+      <div class="handover-code">{{ batch.handover_code }}</div>
+      <div style="color: #666; font-size: 16px;">รหัสส่งมอบ Batch</div>
+    </div>
+
+    <!-- Batch Information -->
+    <table class="info-table">
+      <tr>
+        <th>Batch ID:</th>
+        <td><strong>{{ batch.batch_id }}</strong></td>
+      </tr>
+      <tr>
+        <th>Platform:</th>
+        <td>{{ batch.platform }}</td>
+      </tr>
+      <tr>
+        <th>Run:</th>
+        <td>R{{ batch.run_no }}</td>
+      </tr>
+      <tr>
+        <th>วันที่สร้าง Batch:</th>
+        <td>{{ batch.batch_date|be_date }}</td>
+      </tr>
+      <tr>
+        <th>จำนวนออเดอร์ทั้งหมด:</th>
+        <td><strong style="font-size: 24px; color: #198754;">{{ batch.total_orders }}</strong> รายการ</td>
+      </tr>
+      <tr>
+        <th>สร้างโดย:</th>
+        <td>{{ batch.created_by_username or '-' }}</td>
+      </tr>
+      <tr>
+        <th>เวลาที่พิมพ์:</th>
+        <td>{{ print_time|thai_be }}</td>
+      </tr>
+    </table>
+
+    <!-- Carrier Summary -->
+    <div class="summary-section">
+      <h2>สรุปตามขนส่ง (Carrier Summary)</h2>
+      <div class="carrier-badges">
+        {% if carrier_summary.SPX > 0 %}
+          <span class="carrier-badge spx">SPX: {{ carrier_summary.SPX }}</span>
+        {% endif %}
+        {% if carrier_summary.Flash > 0 %}
+          <span class="carrier-badge flash">Flash: {{ carrier_summary.Flash }}</span>
+        {% endif %}
+        {% if carrier_summary.LEX > 0 %}
+          <span class="carrier-badge lex">LEX: {{ carrier_summary.LEX }}</span>
+        {% endif %}
+        {% if carrier_summary['J&T'] > 0 %}
+          <span class="carrier-badge jt">J&T: {{ carrier_summary['J&T'] }}</span>
+        {% endif %}
+        {% if carrier_summary.Other > 0 %}
+          <span class="carrier-badge other">Other: {{ carrier_summary.Other }}</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Shop Summary -->
+    {% if shop_summary %}
+    <div class="summary-section">
+      <h2>สรุปตามร้าน (Shop Summary)</h2>
+      <div class="shop-list">
+        {% for shop, count in shop_summary.items()|sort(attribute='1', reverse=True) %}
+          <div class="shop-item">
+            <strong>{{ count }}</strong> - {{ shop }}
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Signature Section -->
+    <div class="signature-section">
+      <div class="signature-box">
+        <h3>ผู้ส่งมอบ (พนักงานคลัง)</h3>
+        <div style="height: 60px;"></div>
+        <div class="signature-line">
+          ลงชื่อ: _______________________
+        </div>
+        <div style="text-align: center; margin-top: 10px;">
+          วันที่: _____ / _____ / _____
+        </div>
+      </div>
+
+      <div class="signature-box">
+        <h3>ผู้รับมอบ (Courier)</h3>
+        <div style="height: 60px;"></div>
+        <div class="signature-line">
+          ลงชื่อ: _______________________
+        </div>
+        <div style="text-align: center; margin-top: 10px;">
+          วันที่: _____ / _____ / _____
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p><strong>หมายเหตุ:</strong> กรุณาตรวจสอบจำนวนพัสดุให้ถูกต้องก่อนเซ็นรับ</p>
+      <p>เอกสารฉบับนี้สร้างโดยระบบ VNIX WMS | Batch Handover System</p>
+    </div>
+  </div>
+
+  <!-- Print Button (hidden when printing) -->
+  <div class="no-print" style="text-align: center; margin-top: 20px;">
+    <button onclick="window.print()" style="padding: 15px 30px; font-size: 18px; background: #198754; color: white; border: none; border-radius: 5px; cursor: pointer;">
+      <i data-lucide="printer" style="width: 20px; height: 20px; vertical-align: middle;"></i> พิมพ์ใบส่งมอบ
+    </button>
+    <button onclick="window.close()" style="padding: 15px 30px; font-size: 18px; background: #6c757d; color: white; border: none; border-radius: 5px; cursor: pointer; margin-left: 10px;">
+      <i data-lucide="x" style="width: 20px; height: 20px; vertical-align: middle;"></i> ปิดหน้าต่าง
+    </button>
+  </div>
+  
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script>
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons();
+    }
+  </script>
+
+  <script>
+    // Auto print when page loads (optional - comment out if not desired)
+    // window.onload = function() {
+    //   setTimeout(function() {
+    //     window.print();
+    //   }, 500);
+    // };
+  </script>
+</body>
+</html>

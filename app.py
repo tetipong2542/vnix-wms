@@ -21,9 +21,9 @@ from sqlalchemy.sql import bindparam
 
 from utils import (
     now_thai, to_thai_be, to_be_date_str, TH_TZ, current_be_year,
-    normalize_platform, sla_text, compute_due_date
+    normalize_platform, sla_text, compute_due_date, clean_logistic
 )
-from models import db, Shop, Product, Stock, Sales, OrderLine, User, Batch, AuditLog
+from models import db, Shop, Product, Stock, Sales, OrderLine, User, Batch, AuditLog, ShortageQueue
 from importers import import_products, import_stock, import_sales, import_orders
 from allocation import compute_allocation
 
@@ -121,6 +121,14 @@ def create_app():
             return to_be_date_str(d)
         except Exception:
             return ""
+
+    @app.template_filter("clean_logistic")
+    def clean_logistic_filter(logistic):
+        """ตัดข้อความยาวๆ ของ logistic type ให้สั้นลง"""
+        try:
+            return clean_logistic(logistic)
+        except Exception:
+            return logistic or ""
 
     # -----------------
     # UI context
@@ -271,6 +279,113 @@ def create_app():
             return "partial_ready"  # กำลังหยิบอยู่
         else:
             return "pending"  # ยังไม่เริ่มหยิบ
+
+    def check_batch_locked(batch_id: str, action: str = "modify") -> tuple:
+        """
+        Check if batch is locked before allowing modification (Phase 2.4)
+
+        Args:
+            batch_id: Batch ID to check
+            action: Action being performed (for error message)
+
+        Returns:
+            tuple: (is_allowed: bool, error_message: str or None)
+        """
+        batch = db.session.get(Batch, batch_id)
+
+        if not batch:
+            return False, "ไม่พบ Batch"
+
+        if not batch.locked:
+            return True, None  # ไม่ได้ lock, อนุญาต
+
+        cu = current_user()
+
+        # Admin can bypass lock
+        if cu and cu.role == "admin":
+            return True, None
+
+        # Locked - not allowed for non-admin users
+        locked_info = f"โดย {batch.locked_by_username or 'Unknown'}"
+        if batch.locked_at:
+            from datetime import datetime
+            locked_info += f" เมื่อ {batch.locked_at.strftime('%Y-%m-%d %H:%M')}"
+
+        error = f"❌ Batch {batch_id} ถูก lock แล้ว {locked_info}\n\n"
+        error += f"ไม่สามารถ{action}ได้\n"
+        error += "กรุณาติดต่อ Admin หรือใช้ Batch อื่น"
+
+        return False, error
+
+    def calculate_batch_progress(batch_id: str) -> dict:
+        """
+        คำนวณ Batch Progress แบบ Quantity-based (นับจำนวนชิ้น)
+        ใช้สูตรเดียวกันทุกที่เพื่อความสอดคล้อง
+
+        Phase 2.1: แก้ไขปัญหา Progress Calculation ที่ไม่สอดคล้องกัน
+        - ใช้ Quantity-based แทน Order-based
+        - นับ shortage ที่ resolved/cancelled เป็น completed
+
+        Args:
+            batch_id: Batch ID to calculate progress
+
+        Returns:
+            dict: {
+                "total_qty": int,
+                "picked_qty": int,
+                "shortage_resolved_qty": int,
+                "completed_qty": int,
+                "progress_percent": float,
+                "total_orders": int,
+                "completed_orders": int
+            }
+        """
+        orders = OrderLine.query.filter_by(batch_id=batch_id).all()
+
+        if not orders:
+            return {
+                "total_qty": 0,
+                "picked_qty": 0,
+                "shortage_resolved_qty": 0,
+                "completed_qty": 0,
+                "progress_percent": 0,
+                "total_orders": 0,
+                "completed_orders": 0
+            }
+
+        # คำนวณ Quantity
+        total_qty = sum(order.qty for order in orders)
+        picked_qty = sum(order.picked_qty or 0 for order in orders)
+
+        # นับ shortage ที่ resolved/cancelled เป็น completed
+        shortage_resolved = ShortageQueue.query.filter(
+            ShortageQueue.original_batch_id == batch_id,
+            ShortageQueue.status.in_(['resolved', 'cancelled', 'replaced'])
+        ).all()
+        shortage_resolved_qty = sum(s.qty_shortage for s in shortage_resolved)
+
+        # Completed = Picked + Shortage Resolved
+        completed_qty = picked_qty + shortage_resolved_qty
+
+        # คำนวณ Progress
+        if total_qty == 0:
+            progress_percent = 0
+        else:
+            progress_percent = (completed_qty / total_qty) * 100
+
+        # นับจำนวน Order (สำหรับ backward compatibility)
+        total_orders = len(orders)
+        completed_orders = sum(1 for o in orders if o.dispatch_status in ['dispatched', 'ready', 'partial_ready'])
+
+        return {
+            "total_qty": total_qty,
+            "picked_qty": picked_qty,
+            "shortage_resolved_qty": shortage_resolved_qty,
+            "completed_qty": completed_qty,
+            "progress_percent": round(progress_percent, 1),
+            "total_orders": total_orders,
+            "completed_orders": completed_orders
+        }
 
     def get_next_run_number(platform: str, batch_date: date = None) -> int:
         """
@@ -747,6 +862,7 @@ def create_app():
         date_from = request.args.get("date_from")
         date_to = request.args.get("date_to")
         status = request.args.get("status")
+        include_dispatched = request.args.get("include_dispatched", "0") == "1"  # NEW: ฟิลเตอร์แสดงส่งแล้ว
 
         shops = Shop.query.order_by(Shop.name.asc()).all()
 
@@ -785,11 +901,44 @@ def create_app():
         rows = [_recompute_allocation_row(r) for r in rows]
 
         packed_oids = _orders_packed_set(rows)
+
+        # NEW: หา Orders ที่ส่งมอบแล้ว (handover_confirmed = True)
+        dispatched_oids = set()
+        # ✅ หา Batch ที่เสร็จสิ้นแล้ว (Progress 100%) เพื่อ disable actions
+        completed_batch_oids = set()
+        # Cache batch progress เพื่อไม่ให้คำนวณซ้ำ
+        batch_progress_cache = {}
+
         for r in rows:
-            if (r.get("order_id") or "").strip() in packed_oids:
+            batch_id = r.get("batch_id")
+            if batch_id:
+                batch = db.session.get(Batch, batch_id)
+                if batch and batch.handover_confirmed:
+                    dispatched_oids.add((r.get("order_id") or "").strip())
+                # ✅ เช็ค Progress ของ Batch
+                elif batch:
+                    # ใช้ cache เพื่อไม่ต้องคำนวณซ้ำ
+                    if batch_id not in batch_progress_cache:
+                        batch_progress_cache[batch_id] = calculate_batch_progress(batch_id)
+
+                    progress_data = batch_progress_cache[batch_id]
+                    if progress_data["progress_percent"] >= 100:
+                        completed_batch_oids.add((r.get("order_id") or "").strip())
+
+        for r in rows:
+            oid = (r.get("order_id") or "").strip()
+            if oid in dispatched_oids:
+                r["allocation_status"] = "DISPATCHED"
+                r["dispatched"] = True
+                r["actions_disabled"] = True
+            elif oid in packed_oids:
                 r["allocation_status"] = "PACKED"
                 r["packed"] = True
                 r["actions_disabled"] = True
+            elif oid in completed_batch_oids:
+                # ✅ Batch เสร็จสิ้นแล้ว - ไม่ควรให้กดรับ/ยกเลิกได้อีก
+                r["actions_disabled"] = True
+                r["batch_completed"] = True
             else:
                 r["actions_disabled"] = False
 
@@ -799,10 +948,24 @@ def create_app():
         orders_shortage = _orders_shortage_set(rows)
         status_norm = (status or "").strip().upper()
 
+        # เก็บ all_rows ไว้สำหรับคำนวณ KPI ก่อนกรอง
+        all_rows = rows.copy()
+
+        # กรองตามสถานะที่เลือก
         if status_norm in {"PACKED"}:
             rows = [r for r in rows if (r.get("order_id") or "").strip() in packed_oids]
+        elif status_norm == "DISPATCHED":
+            # เลือกดู DISPATCHED โดยเฉพาะ → แสดงเฉพาะ dispatched
+            rows = [r for r in rows if (r.get("order_id") or "").strip() in dispatched_oids]
         else:
+            # กรอง packed ออกก่อน
             rows = [r for r in rows if (r.get("order_id") or "").strip() not in packed_oids]
+
+            # ถ้าไม่เลือก include_dispatched → กรอง dispatched ออกด้วย
+            if not include_dispatched:
+                rows = [r for r in rows if (r.get("order_id") or "").strip() not in dispatched_oids]
+
+            # กรองตามสถานะอื่นๆ
             if status_norm == "ORDER_READY":
                 rows = [r for r in rows if (r.get("order_id") or "").strip() in orders_ready]
             elif status_norm in {"ORDER_LOW_STOCK", "ORDER_LOW"}:
@@ -814,20 +977,24 @@ def create_app():
             return ((r.get("order_id") or ""), (r.get("platform") or ""), (r.get("shop") or ""), (r.get("sku") or ""))
         rows = sorted(rows, key=_sort_key)
 
+        # KPI คำนวณจาก all_rows (ไม่นับ dispatched ถ้าไม่เลือก include_dispatched)
+        kpi_rows = [r for r in all_rows if (r.get("order_id") or "").strip() not in dispatched_oids] if not include_dispatched else all_rows
+        
         kpis = {
-            "ready":     sum(1 for r in rows if r["allocation_status"] == "READY_ACCEPT"),
-            "accepted":  sum(1 for r in rows if r["allocation_status"] == "ACCEPTED"),
-            "low":       sum(1 for r in rows if r["allocation_status"] == "LOW_STOCK"),
-            "nostock":   sum(1 for r in rows if r["allocation_status"] == "SHORTAGE"),
-            "notenough": sum(1 for r in rows if r["allocation_status"] == "NOT_ENOUGH"),
-            "packed":    len(packed_oids),
-            "total_items": len(rows),
-            "total_qty":   sum(int(r.get("qty", 0) or 0) for r in rows),
-            "orders_unique": len({(r.get("order_id") or "").strip() for r in rows if r.get("order_id")}),
-            "orders_ready": len(orders_ready),
-            "orders_low":   len(orders_low_order),
-            "orders_accepted": len(orders_accepted),
-            "orders_shortage": len(orders_shortage),
+            "ready":     sum(1 for r in kpi_rows if r["allocation_status"] == "READY_ACCEPT"),
+            "accepted":  sum(1 for r in kpi_rows if r["allocation_status"] == "ACCEPTED"),
+            "low":       sum(1 for r in kpi_rows if r["allocation_status"] == "LOW_STOCK"),
+            "nostock":   sum(1 for r in kpi_rows if r["allocation_status"] == "SHORTAGE"),
+            "notenough": sum(1 for r in kpi_rows if r["allocation_status"] == "NOT_ENOUGH"),
+            "packed":    len([oid for oid in packed_oids if oid not in dispatched_oids]),
+            "dispatched": len(dispatched_oids),
+            "total_items": len(kpi_rows),
+            "total_qty":   sum(int(r.get("qty", 0) or 0) for r in kpi_rows),
+            "orders_unique": len({(r.get("order_id") or "").strip() for r in kpi_rows if r.get("order_id")}),
+            "orders_ready": len([oid for oid in orders_ready if oid not in dispatched_oids]),
+            "orders_low":   len([oid for oid in orders_low_order if oid not in dispatched_oids]),
+            "orders_accepted": len([oid for oid in orders_accepted if oid not in dispatched_oids]),
+            "orders_shortage": len([oid for oid in orders_shortage if oid not in dispatched_oids]),
         }
 
         return render_template(
@@ -840,8 +1007,10 @@ def create_app():
             status_sel=status,
             date_from_sel=date_from,
             date_to_sel=date_to,
+            include_dispatched=include_dispatched,
             kpis=kpis,
             packed_oids=packed_oids,
+            dispatched_oids=dispatched_oids,
         )
 
     # -----------------------
@@ -941,7 +1110,37 @@ def create_app():
     @login_required
     def batch_list():
         """Display all batches with summary"""
-        batches = Batch.query.order_by(Batch.created_at.desc()).all()
+        # รับ filters จาก query parameters
+        platform_filter = request.args.get("platform")
+        handover_status = request.args.get("handover_status")  # all, pending, confirmed
+        date_from = request.args.get("date_from")
+        date_to = request.args.get("date_to")
+
+        # Query batches
+        query = Batch.query
+
+        # กรองตาม platform
+        if platform_filter:
+            query = query.filter_by(platform=normalize_platform(platform_filter))
+
+        # กรองตามสถานะการส่งมอบ
+        if handover_status == "confirmed":
+            query = query.filter_by(handover_confirmed=True)
+        elif handover_status == "pending":
+            query = query.filter_by(handover_confirmed=False)
+        # ถ้าเป็น "all" หรือไม่ระบุ → แสดงทั้งหมด
+
+        # กรองตามวันที่
+        if date_from:
+            query = query.filter(Batch.batch_date >= parse_date_any(date_from))
+        if date_to:
+            query = query.filter(Batch.batch_date <= parse_date_any(date_to))
+
+        # เรียงลำดับ: ยังไม่ส่งมอบก่อน (handover_confirmed=False), แล้วเรียงตามวันที่ล่าสุด
+        batches = query.order_by(
+            Batch.handover_confirmed.asc(),  # False (ยังไม่ส่ง) มาก่อน True (ส่งแล้ว)
+            Batch.created_at.desc()
+        ).all()
 
         # Count pending orders by platform
         pending_by_platform = db.session.query(
@@ -952,34 +1151,34 @@ def create_app():
         pending_counts = {platform: count for platform, count in pending_by_platform}
 
         # คำนวณ Progress ของแต่ละ Batch (สำหรับแสดงใน UI)
+        # ✅ Phase 2.1: ใช้ Quantity-based calculation แทน Order-based
         batch_progress = {}
         for batch in batches:
-            total = OrderLine.query.filter_by(batch_id=batch.batch_id).count()
+            progress_data = calculate_batch_progress(batch.batch_id)
 
-            # ✅ แก้ไข: นับทั้ง dispatched, ready, และ partial_ready (shortage) เป็น completed
-            # เพราะทั้ง 3 สถานะถือว่า "เสร็จ" ในแง่ของ picking progress
-            completed = OrderLine.query.filter(
-                OrderLine.batch_id == batch.batch_id,
-                OrderLine.dispatch_status.in_(['dispatched', 'ready', 'partial_ready'])
-            ).count()
+            # สร้าง structure ให้เข้ากับ UI เดิม
+            batch_progress[batch.batch_id] = {
+                "total": progress_data["total_orders"],  # จำนวน orders (สำหรับ backward compatibility)
+                "dispatched": progress_data["completed_orders"],  # จำนวน orders ที่เสร็จ
+                "pending": progress_data["total_orders"] - progress_data["completed_orders"],
+                "percent": progress_data["progress_percent"],  # ✅ ใช้ Quantity-based %
+                # เพิ่มข้อมูล Quantity สำหรับใช้งานในอนาคต
+                "total_qty": progress_data["total_qty"],
+                "picked_qty": progress_data["picked_qty"],
+                "shortage_resolved_qty": progress_data["shortage_resolved_qty"],
+                "completed_qty": progress_data["completed_qty"]
+            }
 
-            if total > 0:
-                progress_percent = (completed / total) * 100
-                batch_progress[batch.batch_id] = {
-                    "total": total,
-                    "dispatched": completed,  # เปลี่ยนชื่อให้สอดคล้องกับการใช้งานเดิม
-                    "pending": total - completed,
-                    "percent": round(progress_percent, 1)
-                }
-            else:
-                batch_progress[batch.batch_id] = {
-                    "total": 0,
-                    "dispatched": 0,
-                    "pending": 0,
-                    "percent": 0
-                }
-
-        return render_template("batch_list.html", batches=batches, pending_counts=pending_counts, batch_progress=batch_progress)
+        return render_template(
+            "batch_list.html",
+            batches=batches,
+            pending_counts=pending_counts,
+            batch_progress=batch_progress,
+            platform_filter=platform_filter,
+            handover_status=handover_status or "all",
+            date_from=date_from,
+            date_to=date_to
+        )
 
     @app.route("/batch/create", methods=["GET", "POST"])
     @login_required
@@ -1073,17 +1272,16 @@ def create_app():
             sku_progress[order.sku]["total_need"] += order.qty
             sku_progress[order.sku]["total_picked"] += (order.picked_qty or 0)
 
-            # ✅ แก้ไข: คำนวณ shortage จาก dispatch_status = "partial_ready" และหยิบไม่ครบ
-            # เพราะ shortage_qty field ไม่มีใน model จริง
-            if order.dispatch_status == "partial_ready":
-                shortage = order.qty - (order.picked_qty or 0)
-                sku_progress[order.sku]["total_shortage"] += shortage
+            # ✅ Phase 2.2: ใช้ shortage_qty field แทนการคำนวณ
+            # shortage_qty เป็น field จริงใน DB ที่อัปเดตเมื่อมีการ mark/resolve shortage
+            sku_progress[order.sku]["total_shortage"] += (order.shortage_qty or 0)
 
         # คำนวณสถานะและเรียงลำดับ
         sku_list = []
         for sku, data in sku_progress.items():
-            remaining = data["total_need"] - data["total_picked"]
-            data["remaining"] = remaining
+            # ✅ แก้ไข: คงเหลือ = สต็อกคงเหลือหลังจากหยิบ (Stock - Picked)
+            remaining = data["stock_qty"] - data["total_picked"]
+            data["remaining"] = max(0, remaining)  # ป้องกันค่าติดลบ
 
             # กำหนดสถานะ
             if data["total_picked"] >= data["total_need"]:
@@ -1109,13 +1307,42 @@ def create_app():
         status_order = {"pending": 0, "picking": 1, "shortage": 2, "completed": 3}
         sku_list.sort(key=lambda x: status_order.get(x["status"], 0))
 
+        # ✅ Phase 2.5: ดึงข้อมูล Shortage Queue เพื่อแสดงเหตุผลและรายละเอียด
+        # Query shortage records สำหรับ batch นี้
+        shortage_records = ShortageQueue.query.filter_by(
+            original_batch_id=batch_id
+        ).all()
+
+        # สร้าง mapping: sku -> shortage details
+        shortage_details = {}
+        for shortage in shortage_records:
+            if shortage.sku not in shortage_details:
+                shortage_details[shortage.sku] = []
+
+            shortage_details[shortage.sku].append({
+                "id": shortage.id,
+                "order_id": shortage.order_id,
+                "qty_shortage": shortage.qty_shortage,
+                "reason": shortage.shortage_reason or "ไม่ระบุ",
+                "status": shortage.status,
+                "created_at": shortage.created_at.strftime("%Y-%m-%d %H:%M") if shortage.created_at else "",
+                "created_by": shortage.created_by_username or "",
+                "resolved_at": shortage.resolved_at.strftime("%Y-%m-%d %H:%M") if shortage.resolved_at else "",
+                "action_taken": shortage.action_taken or ""
+            })
+
+        # ✅ คำนวณ Overall Progress ด้วย calculate_batch_progress() เพื่อให้ตรงกับหน้า Batch List
+        batch_progress_data = calculate_batch_progress(batch_id)
+
         return render_template(
             "batch_detail.html",
             batch=batch,
             orders=orders,
             carrier_summary=carrier_summary,
             shop_summary=shop_summary,
-            sku_progress=sku_list
+            sku_progress=sku_list,
+            shortage_details=shortage_details,  # ✅ ส่งข้อมูล shortage ไปด้วย
+            batch_progress=batch_progress_data  # ✅ ส่ง Overall Progress (Quantity-based)
         )
 
     @app.route("/batch/<batch_id>/summary")
@@ -1488,6 +1715,16 @@ def create_app():
         filters = {"platform": platform, "shop_id": int(shop_id) if shop_id else None, "import_date": None}
         rows, _ = compute_allocation(db.session, filters)
         rows = [r for r in rows if r.get("accepted") and r.get("allocation_status") in ("ACCEPTED", "READY_ACCEPT")]
+        
+        # NEW: กรอง Orders ที่ส่งมอบแล้วออก (ไม่ต้องพิมพ์ใบงานอีก)
+        dispatched_oids = set()
+        for r in rows:
+            batch_id = r.get("batch_id")
+            if batch_id:
+                batch = db.session.get(Batch, batch_id)
+                if batch and batch.handover_confirmed:
+                    dispatched_oids.add((r.get("order_id") or "").strip())
+        rows = [r for r in rows if (r.get("order_id") or "").strip() not in dispatched_oids]
 
         if logistic:
             rows = [r for r in rows if (r.get("logistic") or "").lower().find(logistic.lower()) >= 0]
@@ -1563,6 +1800,16 @@ def create_app():
         filters = {"platform": platform, "shop_id": int(shop_id) if shop_id else None, "import_date": None}
         rows, _ = compute_allocation(db.session, filters)
         rows = [r for r in rows if r.get("accepted") and r.get("allocation_status") in ("ACCEPTED", "READY_ACCEPT")]
+        
+        # NEW: กรอง Orders ที่ส่งมอบแล้วออก
+        dispatched_oids = set()
+        for r in rows:
+            batch_id = r.get("batch_id")
+            if batch_id:
+                batch = db.session.get(Batch, batch_id)
+                if batch and batch.handover_confirmed:
+                    dispatched_oids.add((r.get("order_id") or "").strip())
+        rows = [r for r in rows if (r.get("order_id") or "").strip() not in dispatched_oids]
 
         if logistic:
             rows = [r for r in rows if (r.get("logistic") or "").lower().find(logistic.lower()) >= 0]
@@ -1733,6 +1980,16 @@ def create_app():
             flash(f"Error loading picking list: {str(e)}", "danger")
             return redirect(url_for("dashboard"))
 
+        # NEW: กรอง Orders ที่ส่งมอบแล้วออก (ไม่ต้องหยิบอีก)
+        dispatched_oids = set()
+        for r in rows:
+            batch_id = r.get("batch_id")
+            if batch_id:
+                batch = db.session.get(Batch, batch_id)
+                if batch and batch.handover_confirmed:
+                    dispatched_oids.add((r.get("order_id") or "").strip())
+        rows = [r for r in rows if (r.get("order_id") or "").strip() not in dispatched_oids]
+        
         # เตรียมข้อมูลปลอดภัย + ใส่ stock_qty ให้ครบ
         safe_rows = []
         for r in rows:
@@ -1805,12 +2062,7 @@ def create_app():
             logistics_counter = it.get("logistics_counter", {})
             for carrier, count in logistics_counter.items():
                 carrier_counts[carrier] += count
-        
-        # DEBUG: Print first item to check data
-        if items:
-            print(f"DEBUG - First item logistic: '{items[0].get('logistic')}'")
-            print(f"DEBUG - First item logistics_counter: {items[0].get('logistics_counter')}")
-        
+
         shops = Shop.query.order_by(Shop.name.asc()).all()
         logistics = sorted(set(r.get("logistic") for r in safe_rows if r.get("logistic")))
 
@@ -1841,6 +2093,16 @@ def create_app():
 
         filters = {"platform": platform if platform else None, "shop_id": int(shop_id) if shop_id else None, "import_date": None}
         rows, _ = compute_allocation(db.session, filters)
+
+        # NEW: กรอง Orders ที่ส่งมอบแล้วออก
+        dispatched_oids = set()
+        for r in rows:
+            batch_id = r.get("batch_id")
+            if batch_id:
+                batch = db.session.get(Batch, batch_id)
+                if batch and batch.handover_confirmed:
+                    dispatched_oids.add((r.get("order_id") or "").strip())
+        rows = [r for r in rows if (r.get("order_id") or "").strip() not in dispatched_oids]
 
         safe_rows = []
         for r in rows:
@@ -2268,6 +2530,305 @@ def create_app():
             total_trackings=len(tracking_list)
         )
 
+    # ==========================================
+    # Handover Code System Routes
+    # ==========================================
+
+    @app.route("/api/batch/<batch_id>/generate-handover-code", methods=["POST"])
+    @login_required
+    def api_generate_handover_code(batch_id):
+        """Generate handover code for batch completion (BH-YYYYMMDD-XXX format)"""
+        batch = db.session.get(Batch, batch_id)
+
+        if not batch:
+            return jsonify({"success": False, "error": "ไม่พบ Batch"}), 404
+
+        # Check if batch is 100% complete
+        # ✅ Phase 2.1: ใช้ Quantity-based calculation แทน Order-based
+        progress_data = calculate_batch_progress(batch_id)
+
+        if progress_data["total_qty"] == 0:
+            return jsonify({"success": False, "error": "Batch ไม่มีออเดอร์"}), 400
+
+        if progress_data["progress_percent"] < 100:
+            return jsonify({
+                "success": False,
+                "error": f"Batch ยังไม่เสร็จ (Progress: {progress_data['progress_percent']:.1f}%)\n"
+                        f"หยิบได้: {progress_data['picked_qty']}/{progress_data['total_qty']} ชิ้น\n"
+                        f"Shortage resolved: {progress_data['shortage_resolved_qty']} ชิ้น"
+            }), 400
+
+        # Check if code already exists
+        if batch.handover_code:
+            return jsonify({
+                "success": False,
+                "error": f"Batch นี้มีรหัสส่งมอบแล้ว: {batch.handover_code}"
+            }), 400
+
+        # ✅ Phase 2.6: Retry on conflict to prevent race condition
+        from sqlalchemy.exc import IntegrityError
+        import time
+
+        MAX_RETRIES = 3
+        batch_date_str = batch.batch_date.strftime('%Y%m%d')
+
+        for attempt in range(MAX_RETRIES):
+            try:
+                # Find next running number for this date
+                max_code = db.session.query(Batch.handover_code)\
+                    .filter(Batch.handover_code.like(f"BH-{batch_date_str}-%"))\
+                    .order_by(Batch.handover_code.desc())\
+                    .first()
+
+                if max_code and max_code[0]:
+                    # Extract running number from last code
+                    try:
+                        last_num = int(max_code[0].split('-')[-1])
+                        next_num = last_num + 1
+                    except:
+                        next_num = 1
+                else:
+                    next_num = 1
+
+                handover_code = f"BH-{batch_date_str}-{next_num:03d}"
+
+                # Save to database (will raise IntegrityError if duplicate)
+                cu = current_user()
+                batch.handover_code = handover_code
+                batch.handover_code_generated_at = now_thai()
+                batch.handover_code_generated_by_user_id = cu.id
+                batch.handover_code_generated_by_username = cu.username
+
+                db.session.commit()
+
+                # Audit log
+                log = AuditLog(
+                    action="generate_handover_code",
+                    user_id=cu.id,
+                    username=cu.username,
+                    details=json.dumps({
+                        "batch_id": batch_id,
+                        "handover_code": handover_code
+                    }),
+                    batch_id=batch_id
+                )
+                db.session.add(log)
+                db.session.commit()
+
+                return jsonify({
+                    "success": True,
+                    "handover_code": handover_code,
+                    "message": "สร้างรหัสส่งมอบสำเร็จ"
+                })
+
+            except IntegrityError as e:
+                # Conflict detected! Rollback and retry
+                db.session.rollback()
+                print(f"Handover code conflict (attempt {attempt + 1}/{MAX_RETRIES}), retrying...")
+
+                if attempt == MAX_RETRIES - 1:
+                    # Last attempt failed
+                    return jsonify({
+                        "success": False,
+                        "error": "ไม่สามารถสร้างรหัสส่งมอบได้ กรุณาลองอีกครั้ง"
+                    }), 500
+
+                # Wait before retry (exponential backoff)
+                time.sleep(0.1 * (attempt + 1))  # 100ms, 200ms, 300ms
+                continue
+
+        # Should not reach here
+        return jsonify({
+            "success": False,
+            "error": "เกิดข้อผิดพลาดในการสร้างรหัส"
+        }), 500
+
+    @app.route("/api/handover/verify", methods=["POST"])
+    @login_required
+    def api_verify_handover():
+        """Verify handover code and return batch information"""
+        data = request.get_json()
+        code = data.get("handover_code", "").strip().upper()
+
+        if not code:
+            return jsonify({"success": False, "error": "กรุณาระบุ Handover Code"}), 400
+
+        # Find batch by handover code
+        batch = Batch.query.filter_by(handover_code=code).first()
+
+        if not batch:
+            return jsonify({"success": False, "error": "ไม่พบรหัสส่งมอบนี้"}), 404
+
+        # Check if already confirmed
+        if batch.handover_confirmed:
+            return jsonify({
+                "success": False,
+                "error": f"Batch นี้ยืนยันส่งมอบแล้ว เมื่อ {to_thai_be(batch.handover_confirmed_at)}",
+                "already_confirmed": True
+            }), 400
+
+        # Get batch summary
+        orders = OrderLine.query.filter_by(batch_id=batch.batch_id).all()
+        total = len(orders)
+
+        # Count orders by status
+        ready_count = sum(1 for o in orders if o.dispatch_status == 'ready')
+        partial_ready_count = sum(1 for o in orders if o.dispatch_status == 'partial_ready')
+        dispatched_count = sum(1 for o in orders if o.dispatch_status == 'dispatched')
+
+        # Parse shop summary
+        try:
+            shop_summary = json.loads(batch.shop_summary) if batch.shop_summary else {}
+        except:
+            shop_summary = {}
+
+        return jsonify({
+            "success": True,
+            "batch": {
+                "batch_id": batch.batch_id,
+                "platform": batch.platform,
+                "run_no": batch.run_no,
+                "batch_date": to_be_date_str(batch.batch_date),
+                "total_orders": batch.total_orders,
+                "carrier_summary": {
+                    "SPX": batch.spx_count,
+                    "Flash": batch.flash_count,
+                    "LEX": batch.lex_count,
+                    "J&T": batch.jt_count,
+                    "Other": batch.other_count
+                },
+                "shop_summary": shop_summary,
+                "status_summary": {
+                    "ready": ready_count,
+                    "partial_ready": partial_ready_count,
+                    "dispatched": dispatched_count,
+                    "total": total
+                },
+                "handover_code": code,
+                "generated_by": batch.handover_code_generated_by_username,
+                "generated_at": to_thai_be(batch.handover_code_generated_at)
+            }
+        })
+
+    @app.route("/api/handover/confirm", methods=["POST"])
+    @login_required
+    def api_confirm_handover():
+        """Confirm handover and dispatch all ready orders in batch"""
+        data = request.get_json()
+        code = data.get("handover_code", "").strip().upper()
+        notes = data.get("notes", "").strip()
+
+        if not code:
+            return jsonify({"success": False, "error": "กรุณาระบุ Handover Code"}), 400
+
+        # Find batch by handover code
+        batch = Batch.query.filter_by(handover_code=code).first()
+
+        if not batch:
+            return jsonify({"success": False, "error": "ไม่พบรหัสส่งมอบนี้"}), 404
+
+        # Check if already confirmed
+        if batch.handover_confirmed:
+            return jsonify({
+                "success": False,
+                "error": f"Batch นี้ยืนยันส่งมอบแล้ว เมื่อ {to_thai_be(batch.handover_confirmed_at)}"
+            }), 400
+
+        # Get all orders and dispatch ready ones
+        cu = current_user()
+        orders = OrderLine.query.filter_by(batch_id=batch.batch_id).all()
+        dispatched_count = 0
+        now = now_thai()
+
+        for order in orders:
+            # Dispatch orders that are "ready" or "partial_ready"
+            if order.dispatch_status in ["ready", "partial_ready"]:
+                order.dispatch_status = "dispatched"
+                order.dispatched_at = now
+                order.dispatched_by_user_id = cu.id
+                order.dispatched_by_username = cu.username
+                dispatched_count += 1
+
+        # Update batch
+        batch.handover_confirmed = True
+        batch.handover_confirmed_at = now
+        batch.handover_confirmed_by_user_id = cu.id
+        batch.handover_confirmed_by_username = cu.username
+        batch.handover_notes = notes
+
+        db.session.commit()
+
+        # Audit log
+        log = AuditLog(
+            action="confirm_handover",
+            user_id=cu.id,
+            username=cu.username,
+            details=json.dumps({
+                "batch_id": batch.batch_id,
+                "handover_code": code,
+                "dispatched_count": dispatched_count,
+                "notes": notes
+            }),
+            batch_id=batch.batch_id,
+            order_count=dispatched_count
+        )
+        db.session.add(log)
+        db.session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": f"ยืนยันส่งมอบสำเร็จ - ส่งแล้ว {dispatched_count} รายการ",
+            "dispatched_count": dispatched_count,
+            "total_orders": len(orders)
+        })
+
+    @app.route("/scan-handover")
+    @login_required
+    def scan_handover():
+        """Page for scanning handover code to confirm batch dispatch"""
+        return render_template("scan_handover.html")
+
+    @app.route("/batch/<batch_id>/print-handover")
+    @login_required
+    def batch_print_handover(batch_id):
+        """Print handover sheet with QR code for courier sign-off"""
+        batch = db.session.get(Batch, batch_id)
+
+        if not batch:
+            flash("ไม่พบ Batch", "error")
+            return redirect(url_for('batch_list'))
+
+        if not batch.handover_code:
+            flash("ไม่พบรหัสส่งมอบ กรุณาสร้างรหัสก่อน", "error")
+            return redirect(url_for('batch_detail', batch_id=batch_id))
+
+        # Parse shop summary
+        try:
+            shop_summary = json.loads(batch.shop_summary) if batch.shop_summary else {}
+        except:
+            shop_summary = {}
+
+        # Get carrier summary
+        carrier_summary = {
+            "SPX": batch.spx_count,
+            "Flash": batch.flash_count,
+            "LEX": batch.lex_count,
+            "J&T": batch.jt_count,
+            "Other": batch.other_count
+        }
+
+        return render_template(
+            'batch_print_handover.html',
+            batch=batch,
+            carrier_summary=carrier_summary,
+            shop_summary=shop_summary,
+            print_time=now_thai()
+        )
+
+    # ==========================================
+    # End of Handover Code System Routes
+    # ==========================================
+
     @app.route("/export_picking.xlsx")
     @login_required
     def export_picking_excel():
@@ -2346,21 +2907,458 @@ def create_app():
     # -----------------------
     # Admin clear
     # -----------------------
-    @app.route("/admin/clear", methods=["GET","POST"])
+    @app.route("/admin/clear", methods=["GET"])
     @login_required
     def admin_clear():
-        if request.method=="POST":
-            scope = request.form.get("scope")
-            if scope == "today":
-                today = now_thai().date()
-                OrderLine.query.filter(OrderLine.import_date==today).delete()
-                db.session.commit()
-                flash("ลบข้อมูลของวันนี้แล้ว", "warning")
-            elif scope == "all":
-                OrderLine.query.delete(); db.session.commit()
-                flash("ลบข้อมูลออเดอร์ทั้งหมดแล้ว", "danger")
-            return redirect(url_for("dashboard"))
+        """Show admin clear page with checkboxes"""
         return render_template("clear_confirm.html")
+
+    @app.route("/api/admin/preview", methods=["POST"])
+    @login_required
+    def api_admin_preview():
+        """Preview data before deletion"""
+        data = request.get_json()
+        preview_type = data.get("type")
+
+        try:
+            today = now_thai().date()
+            html = ""
+
+            if preview_type == "orders":
+                # Orders preview
+                total = OrderLine.query.count()
+                today_count = OrderLine.query.filter(OrderLine.import_date == today).count()
+                week_ago = today - timedelta(days=7)
+                week_count = OrderLine.query.filter(OrderLine.import_date >= week_ago).count()
+                month_ago = today - timedelta(days=30)
+                month_count = OrderLine.query.filter(OrderLine.import_date >= month_ago).count()
+
+                # Get recent 5 orders
+                recent = OrderLine.query.order_by(OrderLine.import_date.desc()).limit(5).all()
+
+                html = f"""
+                <div class="alert alert-info">
+                  <h6><i data-lucide="info"></i> สรุปข้อมูลออเดอร์</h6>
+                  <ul class="mb-0">
+                    <li>ออเดอร์วันนี้: <strong>{today_count}</strong> รายการ</li>
+                    <li>ออเดอร์สัปดาห์นี้: <strong>{week_count}</strong> รายการ</li>
+                    <li>ออเดอร์เดือนนี้: <strong>{month_count}</strong> รายการ</li>
+                    <li>ออเดอร์ทั้งหมด: <strong>{total}</strong> รายการ</li>
+                  </ul>
+                </div>
+
+                <h6 class="mt-3">ออเดอร์ล่าสุด 5 รายการ:</h6>
+                <div class="table-responsive">
+                  <table class="table table-sm table-striped">
+                    <thead>
+                      <tr>
+                        <th>Tracking</th>
+                        <th>Platform</th>
+                        <th>Shop</th>
+                        <th>วันที่นำเข้า</th>
+                        <th>สถานะ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                """
+
+                for order in recent:
+                    # ✅ แก้ไข: tracking_id → tracking_number
+                    html += f"""
+                      <tr>
+                        <td><small>{order.tracking_number or '-'}</small></td>
+                        <td><span class="badge bg-secondary">{order.platform or '-'}</span></td>
+                        <td><small>{order.shop_id or '-'}</small></td>
+                        <td><small>{order.import_date or '-'}</small></td>
+                        <td><span class="badge bg-info">{order.batch_status or 'pending'}</span></td>
+                      </tr>
+                    """
+
+                html += """
+                    </tbody>
+                  </table>
+                </div>
+                <p class="text-muted small mt-2">แสดงเพียง 5 รายการล่าสุด</p>
+                """
+
+            elif preview_type == "batches":
+                # Batches preview
+                total = Batch.query.count()
+                today_count = Batch.query.filter(db.func.date(Batch.created_at) == today).count()
+                unlocked_count = Batch.query.filter(Batch.locked == False).count()  # ✅ แก้ไข: is_locked → locked
+                completed_count = Batch.query.filter(Batch.handover_confirmed == True).count()
+
+                recent = Batch.query.order_by(Batch.created_at.desc()).limit(5).all()
+
+                html = f"""
+                <div class="alert alert-info">
+                  <h6><i data-lucide="info"></i> สรุปข้อมูล Batch</h6>
+                  <ul class="mb-0">
+                    <li>Batch วันนี้: <strong>{today_count}</strong> Batch</li>
+                    <li>Batch ที่ Unlocked: <strong>{unlocked_count}</strong> Batch</li>
+                    <li>Batch ที่ส่งมอบแล้ว: <strong>{completed_count}</strong> Batch</li>
+                    <li>Batch ทั้งหมด: <strong>{total}</strong> Batch</li>
+                  </ul>
+                </div>
+
+                <h6 class="mt-3">Batch ล่าสุด 5 รายการ:</h6>
+                <div class="table-responsive">
+                  <table class="table table-sm table-striped">
+                    <thead>
+                      <tr>
+                        <th>Batch ID</th>
+                        <th>จำนวนออเดอร์</th>
+                        <th>สถานะ</th>
+                        <th>ส่งมอบ</th>
+                        <th>สร้างเมื่อ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                """
+
+                for batch in recent:
+                    locked = "🔒 Locked" if batch.locked else "🔓 Unlocked"  # ✅ แก้ไข: is_locked → locked
+                    handover = "✅ ส่งแล้ว" if batch.handover_confirmed else "⏳ ยังไม่ส่ง"
+                    html += f"""
+                      <tr>
+                        <td><small><strong>{batch.batch_id}</strong></small></td>
+                        <td>{batch.total_orders}</td>
+                        <td><span class="badge bg-secondary">{locked}</span></td>
+                        <td><span class="badge bg-info">{handover}</span></td>
+                        <td><small>{batch.created_at.strftime('%Y-%m-%d %H:%M') if batch.created_at else '-'}</small></td>
+                      </tr>
+                    """
+
+                html += """
+                    </tbody>
+                  </table>
+                </div>
+                <p class="text-muted small mt-2">แสดงเพียง 5 รายการล่าสุด</p>
+                """
+
+            elif preview_type == "products":
+                # Products preview
+                products_count = Product.query.count()
+                stock_count = Stock.query.count()
+
+                products = Product.query.limit(5).all()
+
+                html = f"""
+                <div class="alert alert-info">
+                  <h6><i data-lucide="info"></i> สรุปข้อมูลสินค้าและสต็อก</h6>
+                  <ul class="mb-0">
+                    <li>สินค้าทั้งหมด: <strong>{products_count}</strong> รายการ</li>
+                    <li>สต็อกทั้งหมด: <strong>{stock_count}</strong> รายการ</li>
+                  </ul>
+                </div>
+
+                <h6 class="mt-3">สินค้า 5 รายการแรก:</h6>
+                <div class="table-responsive">
+                  <table class="table table-sm table-striped">
+                    <thead>
+                      <tr>
+                        <th>SKU</th>
+                        <th>ชื่อสินค้า</th>
+                        <th>ตำแหน่ง</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                """
+
+                for product in products:
+                    # ✅ แก้ไข: Product model ไม่มี product_name และ location
+                    product_name = f"{product.brand or ''} {product.model or ''}".strip() or '-'
+                    html += f"""
+                      <tr>
+                        <td><small><strong>{product.sku}</strong></small></td>
+                        <td><small>{product_name}</small></td>
+                        <td><small>-</small></td>
+                      </tr>
+                    """
+
+                html += """
+                    </tbody>
+                  </table>
+                </div>
+                <p class="text-muted small mt-2">แสดงเพียง 5 รายการแรก</p>
+                """
+
+            elif preview_type == "audit_logs":
+                # Audit logs preview
+                total = AuditLog.query.count()
+                thirty_days_ago = now_thai() - timedelta(days=30)
+                old_count = AuditLog.query.filter(AuditLog.timestamp < thirty_days_ago).count()
+
+                recent = AuditLog.query.order_by(AuditLog.timestamp.desc()).limit(10).all()
+
+                html = f"""
+                <div class="alert alert-info">
+                  <h6><i data-lucide="info"></i> สรุปข้อมูล Audit Logs</h6>
+                  <ul class="mb-0">
+                    <li>Logs เก่ากว่า 30 วัน: <strong>{old_count}</strong> รายการ</li>
+                    <li>Logs ทั้งหมด: <strong>{total}</strong> รายการ</li>
+                  </ul>
+                </div>
+
+                <h6 class="mt-3">Audit Logs ล่าสุด 10 รายการ:</h6>
+                <div class="table-responsive">
+                  <table class="table table-sm table-striped">
+                    <thead>
+                      <tr>
+                        <th>เวลา</th>
+                        <th>ผู้ใช้</th>
+                        <th>Action</th>
+                        <th>รายละเอียด</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                """
+
+                for log in recent:
+                    timestamp = log.timestamp.strftime('%Y-%m-%d %H:%M:%S') if log.timestamp else '-'
+                    details = (log.details[:50] + '...') if log.details and len(log.details) > 50 else (log.details or '-')
+                    html += f"""
+                      <tr>
+                        <td><small>{timestamp}</small></td>
+                        <td><small>{log.username or '-'}</small></td>
+                        <td><span class="badge bg-primary">{log.action}</span></td>
+                        <td><small>{details}</small></td>
+                      </tr>
+                    """
+
+                html += """
+                    </tbody>
+                  </table>
+                </div>
+                <p class="text-muted small mt-2">แสดงเพียง 10 รายการล่าสุด</p>
+                """
+
+            elif preview_type == "shortage_queue":
+                # ✅ Shortage Queue preview
+                total = ShortageQueue.query.count()
+                pending_count = ShortageQueue.query.filter_by(status='pending').count()
+                resolved_count = ShortageQueue.query.filter(
+                    ShortageQueue.status.in_(['resolved', 'cancelled', 'replaced'])
+                ).count()
+
+                recent = ShortageQueue.query.order_by(ShortageQueue.created_at.desc()).limit(10).all()
+
+                html = f"""
+                <div class="alert alert-info">
+                  <h6><i data-lucide="info"></i> สรุปข้อมูล Shortage Queue</h6>
+                  <ul class="mb-0">
+                    <li>รอจัดการ (Pending): <strong>{pending_count}</strong> รายการ</li>
+                    <li>จัดการแล้ว (Resolved): <strong>{resolved_count}</strong> รายการ</li>
+                    <li>ทั้งหมด: <strong>{total}</strong> รายการ</li>
+                  </ul>
+                </div>
+
+                <h6 class="mt-3">Shortage Queue ล่าสุด 10 รายการ:</h6>
+                <div class="table-responsive">
+                  <table class="table table-sm table-striped">
+                    <thead>
+                      <tr>
+                        <th>Order ID</th>
+                        <th>SKU</th>
+                        <th>Batch</th>
+                        <th>จำนวนขาด</th>
+                        <th>สถานะ</th>
+                        <th>สร้างเมื่อ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                """
+
+                for shortage in recent:
+                    created_at = shortage.created_at.strftime('%Y-%m-%d %H:%M') if shortage.created_at else '-'
+                    status_badge_map = {
+                        'pending': 'warning',
+                        'waiting_stock': 'info',
+                        'resolved': 'success',
+                        'cancelled': 'secondary',
+                        'replaced': 'primary'
+                    }
+                    status_badge = status_badge_map.get(shortage.status, 'secondary')
+
+                    html += f"""
+                      <tr>
+                        <td><small>{shortage.order_id}</small></td>
+                        <td><small><code>{shortage.sku}</code></small></td>
+                        <td><small>{shortage.original_batch_id or '-'}</small></td>
+                        <td><strong class="text-danger">{shortage.qty_shortage}</strong></td>
+                        <td><span class="badge bg-{status_badge}">{shortage.status}</span></td>
+                        <td><small>{created_at}</small></td>
+                      </tr>
+                    """
+
+                html += """
+                    </tbody>
+                  </table>
+                </div>
+                <p class="text-muted small mt-2">แสดงเพียง 10 รายการล่าสุด</p>
+                """
+
+            else:
+                return jsonify({"success": False, "error": "Invalid preview type"}), 400
+
+            return jsonify({"success": True, "html": html})
+
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+
+    @app.route("/api/admin/delete-multiple", methods=["POST"])
+    @login_required
+    def api_admin_delete_multiple():
+        """Execute multiple deletions with password verification"""
+        data = request.get_json()
+        scopes = data.get("scopes", [])
+        password = data.get("password")
+
+        # Verify password
+        if password != "vnixdelete":
+            return jsonify({"success": False, "error": "รหัสผ่านไม่ถูกต้อง"}), 403
+
+        if not scopes or len(scopes) == 0:
+            return jsonify({"success": False, "error": "กรุณาเลือกข้อมูลที่ต้องการลบ"}), 400
+
+        try:
+            cu = current_user()
+            total_deleted = 0
+            messages = []
+            today = now_thai().date()
+
+            for scope in scopes:
+                deleted_count = 0
+
+                if scope == "orders_today":
+                    deleted_count = OrderLine.query.filter(OrderLine.import_date == today).delete()
+                    messages.append(f"ลบออเดอร์ของวันนี้: {deleted_count} รายการ")
+
+                elif scope == "orders_week":
+                    week_ago = today - timedelta(days=7)
+                    deleted_count = OrderLine.query.filter(OrderLine.import_date >= week_ago).delete()
+                    messages.append(f"ลบออเดอร์สัปดาห์นี้: {deleted_count} รายการ")
+
+                elif scope == "orders_month":
+                    month_ago = today - timedelta(days=30)
+                    deleted_count = OrderLine.query.filter(OrderLine.import_date >= month_ago).delete()
+                    messages.append(f"ลบออเดอร์เดือนนี้: {deleted_count} รายการ")
+
+                elif scope == "orders_all":
+                    deleted_count = OrderLine.query.delete()
+                    messages.append(f"ลบออเดอร์ทั้งหมด: {deleted_count} รายการ")
+
+                elif scope == "batches_today":
+                    batches = Batch.query.filter(db.func.date(Batch.created_at) == today).all()
+                    deleted_count = len(batches)
+                    for batch in batches:
+                        OrderLine.query.filter(OrderLine.batch_id == batch.batch_id).update(
+                            {"batch_id": None, "batch_status": "pending"}
+                        )
+                        db.session.delete(batch)
+                    messages.append(f"ลบ Batch ของวันนี้: {deleted_count} Batch")
+
+                elif scope == "batches_week":
+                    week_ago = today - timedelta(days=7)
+                    batches = Batch.query.filter(db.func.date(Batch.created_at) >= week_ago).all()
+                    deleted_count = len(batches)
+                    for batch in batches:
+                        OrderLine.query.filter(OrderLine.batch_id == batch.batch_id).update(
+                            {"batch_id": None, "batch_status": "pending"}
+                        )
+                        db.session.delete(batch)
+                    messages.append(f"ลบ Batch สัปดาห์นี้: {deleted_count} Batch")
+
+                elif scope == "batches_unlocked":
+                    batches = Batch.query.filter(Batch.is_locked == False).all()
+                    deleted_count = len(batches)
+                    for batch in batches:
+                        OrderLine.query.filter(OrderLine.batch_id == batch.batch_id).update(
+                            {"batch_id": None, "batch_status": "pending"}
+                        )
+                        db.session.delete(batch)
+                    messages.append(f"ลบ Batch ที่ Unlocked: {deleted_count} Batch")
+
+                elif scope == "batches_completed":
+                    batches = Batch.query.filter(Batch.handover_confirmed == True).all()
+                    deleted_count = len(batches)
+                    for batch in batches:
+                        OrderLine.query.filter(OrderLine.batch_id == batch.batch_id).update(
+                            {"batch_id": None, "batch_status": "pending"}
+                        )
+                        db.session.delete(batch)
+                    messages.append(f"ลบ Batch ที่ส่งมอบแล้ว: {deleted_count} Batch")
+
+                elif scope == "batches_all":
+                    OrderLine.query.update({"batch_id": None, "batch_status": "pending"})
+                    deleted_count = Batch.query.delete()
+                    messages.append(f"ลบ Batch ทั้งหมด: {deleted_count} Batch")
+
+                elif scope == "products_all":
+                    deleted_count = Product.query.delete()
+                    messages.append(f"ลบข้อมูลสินค้า: {deleted_count} รายการ")
+
+                elif scope == "stock_all":
+                    deleted_count = Stock.query.delete()
+                    messages.append(f"ลบข้อมูลสต็อก: {deleted_count} รายการ")
+
+                elif scope == "audit_logs":
+                    deleted_count = AuditLog.query.delete()
+                    messages.append(f"ลบ Audit Logs: {deleted_count} รายการ")
+
+                elif scope == "audit_logs_old":
+                    thirty_days_ago = now_thai() - timedelta(days=30)
+                    deleted_count = AuditLog.query.filter(AuditLog.timestamp < thirty_days_ago).delete()
+                    messages.append(f"ลบ Audit Logs เก่า: {deleted_count} รายการ")
+
+                elif scope == "shortage_queue_pending":
+                    deleted_count = ShortageQueue.query.filter_by(status='pending').delete()
+                    messages.append(f"ลบ Shortage Queue (Pending): {deleted_count} รายการ")
+
+                elif scope == "shortage_queue_resolved":
+                    deleted_count = ShortageQueue.query.filter(
+                        ShortageQueue.status.in_(['resolved', 'cancelled', 'replaced'])
+                    ).delete()
+                    messages.append(f"ลบ Shortage Queue (Resolved): {deleted_count} รายการ")
+
+                elif scope == "shortage_queue_all":
+                    deleted_count = ShortageQueue.query.delete()
+                    messages.append(f"ลบ Shortage Queue ทั้งหมด: {deleted_count} รายการ")
+
+                elif scope == "all_data":
+                    OrderLine.query.delete()
+                    Batch.query.delete()
+                    Product.query.delete()
+                    Stock.query.delete()
+                    AuditLog.query.delete()
+                    ShortageQueue.query.delete()  # ✅ Add ShortageQueue to all_data deletion
+                    deleted_count = 9999  # Special marker
+                    messages.append("ลบข้อมูลทั้งหมดในระบบ")
+
+                total_deleted += deleted_count
+
+            # Commit all changes at once
+            db.session.commit()
+
+            # Create audit log
+            log = AuditLog(
+                user_id=cu.id,
+                username=cu.username,
+                action="admin_delete_multiple",
+                details=f"Admin delete multiple: {', '.join(messages)} (scopes: {','.join(scopes)})"
+            )
+            db.session.add(log)
+            db.session.commit()
+
+            return jsonify({
+                "success": True,
+                "message": "<br>".join(messages),
+                "total_deleted": total_deleted
+            })
+
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"success": False, "error": str(e)}), 500
 
     # =============================
     # QR Code Generation
@@ -2409,31 +3407,28 @@ def create_app():
     @login_required
     def api_quick_assign_batches():
         """API สำหรับดึง Batch ที่ยังไม่เสร็จ (Quick Assign)"""
-        # หา Batch ที่ยังมีออเดอร์ที่ไม่ได้ dispatch
-        batches = db.session.query(Batch).join(
-            OrderLine, Batch.batch_id == OrderLine.batch_id
-        ).filter(
-            OrderLine.dispatch_status != "dispatched"
-        ).group_by(Batch.batch_id).order_by(Batch.created_at.desc()).limit(10).all()
+        # หา Batch ที่ยังไม่ส่งมอบ (handover_confirmed = False)
+        batches = Batch.query.filter_by(
+            handover_confirmed=False
+        ).order_by(Batch.created_at.desc()).limit(10).all()
 
         result = []
         for batch in batches:
-            # นับออเดอร์ที่ยังไม่เสร็จ
-            pending_orders = OrderLine.query.filter(
-                OrderLine.batch_id == batch.batch_id,
-                OrderLine.dispatch_status != "dispatched"
-            ).count()
-
-            total_orders = OrderLine.query.filter_by(batch_id=batch.batch_id).count()
+            # ✅ ใช้ calculate_batch_progress() เพื่อความสอดคล้อง
+            progress_data = calculate_batch_progress(batch.batch_id)
 
             result.append({
                 "batch_id": batch.batch_id,
                 "platform": batch.platform,
                 "run_no": batch.run_no,
-                "total_orders": total_orders,
-                "pending_orders": pending_orders,
+                "total_orders": batch.total_orders,
                 "created_at": batch.created_at.isoformat() if batch.created_at else None,
-                "created_by": batch.created_by_username
+                "created_by": batch.created_by_username,
+                # ✅ เพิ่ม Progress (Quantity-based)
+                "progress_percent": progress_data["progress_percent"],
+                "total_qty": progress_data["total_qty"],
+                "completed_qty": progress_data["completed_qty"],
+                "picked_qty": progress_data["picked_qty"]
             })
 
         return jsonify({"success": True, "batches": result})
@@ -2587,6 +3582,13 @@ def create_app():
                     "error": f"ไม่พบออเดอร์ที่ต้องการ SKU: {sku} (หรือยังไม่รับงาน)"
                 }), 404
 
+            # ✅ Phase 2.4: Check if any batch is locked (non-admin users cannot pick from locked batches)
+            batch_ids = set(o.batch_id for o in orders if o.batch_id)
+            for batch_id in batch_ids:
+                allowed, error_msg = check_batch_locked(batch_id, "หยิบสินค้า")
+                if not allowed:
+                    return jsonify({"success": False, "error": error_msg}), 403
+
             # คำนวณ Need / Picked / Remaining / Shortage (with fallback for missing column)
             total_need = sum(o.qty for o in orders)
             total_picked = sum(o.picked_qty or 0 for o in orders)
@@ -2597,6 +3599,14 @@ def create_app():
             product = Product.query.filter_by(sku=sku).first()
             stock = Stock.query.filter_by(sku=sku).first()
             stock_qty = stock.qty if stock else 0
+
+            # ⚠️ เช็คว่ามี Shortage Records อยู่แล้วหรือไม่ (เฉพาะ pending)
+            existing_shortage_records = ShortageQueue.query.filter(
+                ShortageQueue.sku == sku,
+                ShortageQueue.status == 'pending'
+            ).join(OrderLine, ShortageQueue.order_line_id == OrderLine.id).filter(
+                OrderLine.accepted == True
+            ).all()
 
             # สร้างรายการออเดอร์ที่ต้องการ SKU นี้
             order_list = []
@@ -2613,6 +3623,8 @@ def create_app():
                 "success": True,
                 "sku": sku,
                 "brand": product.brand if product else "",
+                "has_pending_shortage": len(existing_shortage_records) > 0,
+                "existing_shortage_count": len(existing_shortage_records),
                 "model": product.model if product else "",
                 "stock_qty": stock_qty,
                 "total_need": total_need,
@@ -2701,10 +3713,9 @@ def create_app():
                         order.picked_by_user_id = cu.id
                         order.picked_by_username = cu.username
 
-                        # คำนวณ shortage
+                        # ✅ Phase 2.2: คำนวณ shortage_qty
                         still_need = order.qty - order.picked_qty
-                        if hasattr(order, 'shortage_qty'):
-                            order.shortage_qty = still_need
+                        order.shortage_qty = max(0, still_need)  # ป้องกันค่าติดลบ
 
                         # อัปเดตสถานะ
                         if order.picked_qty >= order.qty:
@@ -2762,6 +3773,897 @@ def create_app():
         except Exception as e:
             # Log the error for debugging
             print(f"ERROR in /api/pick/sku: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                "success": False,
+                "error": f"เกิดข้อผิดพลาดในระบบ: {str(e)}"
+            }), 500
+
+    # -----------------------
+    # Shortage Queue Management (Option 2)
+    # -----------------------
+    @app.route("/shortage-queue")
+    @login_required
+    def shortage_queue():
+        """หน้า Shortage Queue Dashboard"""
+        return render_template("shortage_queue.html")
+
+    @app.route("/api/shortage/queue", methods=["GET"])
+    @login_required
+    def api_shortage_queue():
+        """API สำหรับดึงข้อมูล Shortage Queue"""
+        try:
+            status = request.args.get("status", "").strip()
+            batch_id = request.args.get("batch", "").strip()
+            sku = request.args.get("sku", "").strip()
+
+            # Query
+            query = ShortageQueue.query
+
+            if status:
+                query = query.filter_by(status=status)
+            if batch_id:
+                query = query.filter(ShortageQueue.original_batch_id.like(f"%{batch_id}%"))
+            if sku:
+                query = query.filter(ShortageQueue.sku.like(f"%{sku}%"))
+
+            shortages = query.order_by(ShortageQueue.created_at.desc()).all()
+
+            # Summary counts
+            summary = {
+                "pending": ShortageQueue.query.filter_by(status="pending").count(),
+                "waiting_stock": ShortageQueue.query.filter_by(status="waiting_stock").count(),
+                "cancelled": ShortageQueue.query.filter_by(status="cancelled").count(),
+                "replaced": ShortageQueue.query.filter_by(status="replaced").count(),
+                "resolved": ShortageQueue.query.filter_by(status="resolved").count(),
+                "total": ShortageQueue.query.count()
+            }
+
+            # Format data
+            shortages_data = []
+            for s in shortages:
+                # ✅ Phase 2.5: ใช้ Real-time data จาก OrderLine แทนข้อมูลที่เก็บใน ShortageQueue
+                order_line = s.order_line
+                qty_picked_realtime = order_line.picked_qty if order_line else s.qty_picked
+                qty_shortage_realtime = max(0, s.qty_required - qty_picked_realtime)
+
+                shortages_data.append({
+                    "id": s.id,
+                    "order_id": s.order_id,
+                    "sku": s.sku,
+                    "batch_id": s.original_batch_id,
+                    "qty_required": s.qty_required,
+                    "qty_picked": qty_picked_realtime,  # ✅ Real-time from OrderLine
+                    "qty_shortage": qty_shortage_realtime,  # ✅ Recalculated
+                    "reason": s.shortage_reason,
+                    "status": s.status,
+                    "created_by": s.created_by_username,
+                    "created_at": to_thai_be(s.created_at) if s.created_at else "-",
+                    "resolved_at": to_thai_be(s.resolved_at) if s.resolved_at else None,
+                    "resolved_by": s.resolved_by_username
+                })
+
+            return jsonify({
+                "success": True,
+                "shortages": shortages_data,
+                "summary": summary
+            })
+
+        except Exception as e:
+            print(f"ERROR in /api/shortage/queue: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                "success": False,
+                "error": f"เกิดข้อผิดพลาด: {str(e)}"
+            }), 500
+
+    @app.route("/api/shortage/action", methods=["POST"])
+    @login_required
+    def api_shortage_action():
+        """API สำหรับจัดการ Shortage (รอสต็อก/ยกเลิก/แทน SKU)"""
+        try:
+            data = request.get_json()
+            shortage_id = data.get("shortage_id")
+            action = data.get("action", "").strip()
+            replacement_sku = data.get("replacement_sku", "").strip()
+            notes = data.get("notes", "").strip()
+
+            if not shortage_id or not action:
+                return jsonify({"success": False, "error": "ข้อมูลไม่ครบ"}), 400
+
+            shortage = db.session.get(ShortageQueue, shortage_id)
+            if not shortage:
+                return jsonify({"success": False, "error": "ไม่พบ Shortage Record"}), 404
+
+            if shortage.status != "pending":
+                return jsonify({"success": False, "error": "Shortage นี้ถูกจัดการไปแล้ว"}), 400
+
+            cu = current_user()
+            now = now_thai()
+
+            # Update status based on action
+            if action == "wait_stock":
+                shortage.status = "waiting_stock"
+                shortage.action_taken = "wait_stock"
+            elif action == "cancel":
+                shortage.status = "cancelled"
+                shortage.action_taken = "cancel"
+            elif action == "replace_sku":
+                if not replacement_sku:
+                    return jsonify({"success": False, "error": "กรุณาระบุ SKU ที่ใช้แทน"}), 400
+                shortage.status = "replaced"
+                shortage.action_taken = "replace_sku"
+                shortage.replacement_sku = replacement_sku
+            elif action == "resolved":
+                # ✅ ตรวจสอบว่ามีการหยิบสินค้าครบแล้วหรือยัง
+                order_line = shortage.order_line
+                if not order_line:
+                    return jsonify({
+                        "success": False,
+                        "error": "ไม่พบข้อมูล Order Line"
+                    }), 404
+
+                # คำนวณว่าต้องหยิบกี่ชิ้น (ต้องการ - ขาด)
+                expected_picked = shortage.qty_required - shortage.qty_shortage
+                actual_picked = order_line.picked_qty or 0
+
+                # ถ้ายังหยิบไม่ครบ → ไม่อนุญาตให้เปลี่ยนเป็น "จัดการเรียบร้อย"
+                if actual_picked < expected_picked:
+                    return jsonify({
+                        "success": False,
+                        "error": f"❌ ยังหยิบสินค้าไม่ครบ!\n\n📦 SKU: {shortage.sku}\n✅ ต้องหยิบ: {expected_picked} ชิ้น\n📊 หยิบแล้ว: {actual_picked} ชิ้น\n⚠️ ยังขาดอีก: {expected_picked - actual_picked} ชิ้น\n\n💡 กรุณาไปหยิบสินค้าในหน้า /scan/sku ก่อน หรือเลือก Action อื่น เช่น 'ยกเลิก' หรือ 'รอสต็อกเข้า'"
+                    }), 400
+
+                shortage.status = "resolved"
+                shortage.action_taken = "resolved"
+            else:
+                return jsonify({"success": False, "error": "Action ไม่ถูกต้อง"}), 400
+
+            shortage.resolution_notes = notes
+            shortage.resolved_at = now
+            shortage.resolved_by_user_id = cu.id
+            shortage.resolved_by_username = cu.username
+
+            # ✅ Phase 2.2: อัปเดต shortage_qty ใน OrderLine เมื่อ resolve/cancel/replace
+            if action in ['cancel', 'resolved', 'replace_sku']:
+                order_line = shortage.order_line
+                if order_line:
+                    # ลด shortage_qty ลงตามจำนวนที่จัดการแล้ว
+                    current_shortage = order_line.shortage_qty or 0
+                    order_line.shortage_qty = max(0, current_shortage - shortage.qty_shortage)
+
+            db.session.commit()
+
+            # Audit Log
+            log_audit(
+                action="shortage_action",
+                details={
+                    "shortage_id": shortage_id,
+                    "order_id": shortage.order_id,
+                    "sku": shortage.sku,
+                    "action": action,
+                    "replacement_sku": replacement_sku,
+                    "notes": notes,
+                    "resolved_by": cu.username
+                }
+            )
+
+            # ✅ Phase 1.2: Recalculate Batch Progress หลัง resolve shortage
+            batch_progress = None
+            if shortage.original_batch_id:
+                try:
+                    progress_data = calculate_batch_progress(shortage.original_batch_id)
+                    batch_progress = {
+                        "batch_id": shortage.original_batch_id,
+                        "progress_percent": progress_data["progress_percent"],
+                        "completed_qty": progress_data["completed_qty"],
+                        "total_qty": progress_data["total_qty"]
+                    }
+                except Exception as e:
+                    print(f"Warning: Could not calculate batch progress: {e}")
+
+            return jsonify({
+                "success": True,
+                "message": f"บันทึกสำเร็จ: {shortage.order_id}",
+                "batch_progress": batch_progress  # ✅ Phase 1.2: Return progress
+            })
+
+        except Exception as e:
+            print(f"ERROR in /api/shortage/action: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                "success": False,
+                "error": f"เกิดข้อผิดพลาด: {str(e)}"
+            }), 500
+
+    @app.route("/api/shortage/quick-action", methods=["POST"])
+    @login_required
+    def api_shortage_quick_action():
+        """API สำหรับ Quick Action จาก Batch Detail - จัดการ Shortage ทั้งหมดของ SKU ใน Batch"""
+        try:
+            data = request.get_json()
+            sku = data.get("sku", "").strip()
+            batch_id = data.get("batch_id", "").strip()
+            action = data.get("action", "").strip()
+            notes = data.get("notes", "").strip()
+
+            if not sku or not batch_id or not action:
+                return jsonify({"success": False, "error": "ข้อมูลไม่ครบ"}), 400
+
+            # หา Shortage Records ทั้งหมดที่ pending สำหรับ SKU และ Batch นี้
+            shortages = ShortageQueue.query.filter(
+                ShortageQueue.sku == sku,
+                ShortageQueue.original_batch_id == batch_id,
+                ShortageQueue.status == "pending"
+            ).all()
+
+            if not shortages:
+                return jsonify({"success": False, "error": "ไม่พบ Shortage ที่รอจัดการ"}), 404
+
+            cu = current_user()
+            now = now_thai()
+            updated_count = 0
+            validation_errors = []
+
+            # Update all pending shortages
+            for shortage in shortages:
+                if action == "resolved":
+                    # ✅ ตรวจสอบว่ามีการหยิบสินค้าครบแล้วหรือยัง
+                    order_line = shortage.order_line
+                    if not order_line:
+                        validation_errors.append(f"Order {shortage.order_id}: ไม่พบข้อมูล Order Line")
+                        continue
+
+                    # คำนวณว่าต้องหยิบกี่ชิ้น (ต้องการ - ขาด)
+                    expected_picked = shortage.qty_required - shortage.qty_shortage
+                    actual_picked = order_line.picked_qty or 0
+
+                    # ถ้ายังหยิบไม่ครบ → ข้าม shortage นี้
+                    if actual_picked < expected_picked:
+                        validation_errors.append(
+                            f"Order {shortage.order_id}: ยังหยิบไม่ครบ (ต้องหยิบ {expected_picked} แต่หยิบได้ {actual_picked})"
+                        )
+                        continue
+
+                    shortage.status = "resolved"
+                    shortage.action_taken = "resolved"
+                elif action == "cancelled":
+                    shortage.status = "cancelled"
+                    shortage.action_taken = "cancel"
+                else:
+                    return jsonify({"success": False, "error": "Action ไม่ถูกต้อง"}), 400
+
+                shortage.resolution_notes = notes
+                shortage.resolved_at = now
+                shortage.resolved_by_user_id = cu.id
+                shortage.resolved_by_username = cu.username
+
+                # ✅ Phase 2.2: อัปเดต shortage_qty ใน OrderLine
+                if action in ['resolved', 'cancelled']:
+                    order_line = shortage.order_line
+                    if order_line:
+                        current_shortage = order_line.shortage_qty or 0
+                        order_line.shortage_qty = max(0, current_shortage - shortage.qty_shortage)
+
+                updated_count += 1
+
+            # ถ้ามี validation errors → แสดงข้อความเตือน
+            if validation_errors and updated_count == 0:
+                error_msg = "❌ ไม่สามารถจัดการเรียบร้อยได้:\n\n" + "\n".join(validation_errors)
+                error_msg += "\n\n💡 กรุณาไปหยิบสินค้าในหน้า /scan/sku ก่อน"
+                return jsonify({"success": False, "error": error_msg}), 400
+
+            db.session.commit()
+
+            # Audit Log
+            log_audit(
+                action="shortage_quick_action",
+                details={
+                    "sku": sku,
+                    "batch_id": batch_id,
+                    "action": action,
+                    "count": updated_count,
+                    "notes": notes,
+                    "resolved_by": cu.username
+                }
+            )
+
+            # สร้าง response message
+            message = f"จัดการ Shortage สำเร็จ ({updated_count} รายการ)"
+            if validation_errors:
+                message += f"\n\n⚠️ มีบางรายการที่ยังหยิบไม่ครบ ({len(validation_errors)} รายการ):\n" + "\n".join(validation_errors[:3])
+                if len(validation_errors) > 3:
+                    message += f"\n... และอีก {len(validation_errors) - 3} รายการ"
+
+            return jsonify({
+                "success": True,
+                "message": message,
+                "count": updated_count,
+                "warnings": validation_errors if validation_errors else None
+            })
+
+        except Exception as e:
+            print(f"ERROR in /api/shortage/quick-action: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                "success": False,
+                "error": f"เกิดข้อผิดพลาด: {str(e)}"
+            }), 500
+
+    # ✅ Phase 1.1: Bulk Action API
+    @app.route("/api/shortage/bulk-action", methods=["POST"])
+    @login_required
+    def api_shortage_bulk_action():
+        """
+        API สำหรับจัดการ Shortage หลายรายการพร้อมกัน (Bulk Action)
+
+        Request:
+            {
+                "shortage_ids": [1, 2, 3],
+                "action": "wait_stock" | "cancel" | "resolved" | "replace_sku",
+                "replacement_sku": "SKU-002" (optional, required for replace_sku),
+                "notes": "หมายเหตุ" (optional)
+            }
+
+        Response:
+            {
+                "success": true,
+                "processed": 3,
+                "failed": 0,
+                "errors": []
+            }
+        """
+        try:
+            data = request.get_json()
+            shortage_ids = data.get("shortage_ids", [])
+            action = data.get("action", "").strip()
+            replacement_sku = data.get("replacement_sku", "").strip()
+            notes = data.get("notes", "").strip()
+
+            # Validation
+            if not shortage_ids or not isinstance(shortage_ids, list):
+                return jsonify({"success": False, "error": "กรุณาเลือกรายการที่ต้องการจัดการ"}), 400
+
+            if not action:
+                return jsonify({"success": False, "error": "กรุณาเลือก Action"}), 400
+
+            if action == "replace_sku" and not replacement_sku:
+                return jsonify({"success": False, "error": "กรุณาระบุ SKU ที่ใช้แทน"}), 400
+
+            cu = current_user()
+            now = now_thai()
+
+            processed_count = 0
+            failed_count = 0
+            errors = []
+
+            # Process each shortage
+            for shortage_id in shortage_ids:
+                try:
+                    shortage = db.session.get(ShortageQueue, shortage_id)
+
+                    if not shortage:
+                        errors.append(f"Shortage ID {shortage_id}: ไม่พบข้อมูล")
+                        failed_count += 1
+                        continue
+
+                    if shortage.status != "pending":
+                        errors.append(f"Shortage ID {shortage_id} ({shortage.order_id}): ถูกจัดการไปแล้ว")
+                        failed_count += 1
+                        continue
+
+                    # Update based on action
+                    if action == "wait_stock":
+                        shortage.status = "waiting_stock"
+                        shortage.action_taken = "wait_stock"
+
+                    elif action == "cancel":
+                        shortage.status = "cancelled"
+                        shortage.action_taken = "cancel"
+
+                    elif action == "replace_sku":
+                        shortage.status = "replaced"
+                        shortage.action_taken = "replace_sku"
+                        shortage.replacement_sku = replacement_sku
+
+                    elif action == "resolved":
+                        # ✅ Validation: ตรวจสอบว่ามีการหยิบสินค้าครบแล้วหรือยัง
+                        order_line = shortage.order_line
+                        if not order_line:
+                            errors.append(f"Shortage ID {shortage_id} ({shortage.order_id}): ไม่พบข้อมูล Order Line")
+                            failed_count += 1
+                            continue
+
+                        # คำนวณว่าต้องหยิบกี่ชิ้น (ต้องการ - ขาด)
+                        expected_picked = shortage.qty_required - shortage.qty_shortage
+                        actual_picked = order_line.picked_qty or 0
+
+                        # ถ้ายังหยิบไม่ครบ → ข้าม
+                        if actual_picked < expected_picked:
+                            errors.append(
+                                f"Order {shortage.order_id} ({shortage.sku}): ยังหยิบไม่ครบ (ต้อง {expected_picked} แต่มี {actual_picked})"
+                            )
+                            failed_count += 1
+                            continue
+
+                        shortage.status = "resolved"
+                        shortage.action_taken = "resolved"
+
+                    else:
+                        errors.append(f"Shortage ID {shortage_id}: Action ไม่ถูกต้อง")
+                        failed_count += 1
+                        continue
+
+                    # Update audit fields
+                    shortage.resolution_notes = notes
+                    shortage.resolved_at = now
+                    shortage.resolved_by_user_id = cu.id
+                    shortage.resolved_by_username = cu.username
+
+                    # ✅ Phase 2.2: อัปเดต shortage_qty ใน OrderLine
+                    if action in ['cancel', 'resolved', 'replace_sku']:
+                        order_line = shortage.order_line
+                        if order_line:
+                            current_shortage = order_line.shortage_qty or 0
+                            order_line.shortage_qty = max(0, current_shortage - shortage.qty_shortage)
+
+                    processed_count += 1
+
+                except Exception as e:
+                    errors.append(f"Shortage ID {shortage_id}: {str(e)}")
+                    failed_count += 1
+                    continue
+
+            # Commit all changes
+            if processed_count > 0:
+                db.session.commit()
+
+                # Audit Log
+                log_audit(
+                    action="shortage_bulk_action",
+                    details={
+                        "shortage_ids": shortage_ids,
+                        "action": action,
+                        "replacement_sku": replacement_sku,
+                        "notes": notes,
+                        "processed": processed_count,
+                        "failed": failed_count,
+                        "resolved_by": cu.username
+                    }
+                )
+
+            # ✅ Phase 1.2: Recalculate Batch Progress หลัง bulk resolve
+            # หา batch IDs ทั้งหมดที่ได้รับผลกระทบ
+            affected_batches = {}
+            if processed_count > 0:
+                for shortage_id in shortage_ids:
+                    shortage = db.session.get(ShortageQueue, shortage_id)
+                    if shortage and shortage.original_batch_id:
+                        batch_id = shortage.original_batch_id
+                        if batch_id not in affected_batches:
+                            try:
+                                progress_data = calculate_batch_progress(batch_id)
+                                affected_batches[batch_id] = {
+                                    "progress_percent": progress_data["progress_percent"],
+                                    "completed_qty": progress_data["completed_qty"],
+                                    "total_qty": progress_data["total_qty"]
+                                }
+                            except Exception as e:
+                                print(f"Warning: Could not calculate progress for batch {batch_id}: {e}")
+
+            # Response
+            if failed_count > 0 and processed_count == 0:
+                # ทุกรายการล้มเหลว
+                error_msg = f"❌ ไม่สามารถจัดการได้ทั้งหมด ({failed_count} รายการ)\n\n"
+                error_msg += "\n".join(errors[:5])  # แสดงแค่ 5 รายการแรก
+                if len(errors) > 5:
+                    error_msg += f"\n... และอีก {len(errors) - 5} รายการ"
+                return jsonify({
+                    "success": False,
+                    "error": error_msg,
+                    "errors": errors
+                }), 400
+
+            # มีบางรายการสำเร็จ
+            response = {
+                "success": True,
+                "processed": processed_count,
+                "failed": failed_count,
+                "message": f"✅ จัดการสำเร็จ {processed_count} รายการ",
+                "batch_progress": affected_batches  # ✅ Phase 1.2: Return progress
+            }
+
+            if failed_count > 0:
+                response["warnings"] = errors
+                response["message"] += f" (ล้มเหลว {failed_count} รายการ)"
+
+            return jsonify(response)
+
+        except Exception as e:
+            db.session.rollback()
+            print(f"ERROR in /api/shortage/bulk-action: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                "success": False,
+                "error": f"เกิดข้อผิดพลาด: {str(e)}"
+            }), 500
+
+    # ✅ Phase 1.3: Export Shortage Report to Excel
+    @app.route("/api/shortage/export-excel")
+    @login_required
+    def api_export_shortage_excel():
+        """Export Shortage Queue to Excel with filters"""
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
+            from openpyxl.utils import get_column_letter
+            from io import BytesIO
+            from datetime import datetime
+
+            # Get filters from query params
+            status = request.args.get('status', '').strip()
+            batch = request.args.get('batch', '').strip()
+            sku = request.args.get('sku', '').strip()
+
+            # Query data with filters
+            query = ShortageQueue.query
+
+            if status:
+                query = query.filter_by(status=status)
+            if batch:
+                query = query.filter_by(original_batch_id=batch)
+            if sku:
+                query = query.filter(ShortageQueue.sku.like(f'%{sku}%'))
+
+            # Order by created_at desc (newest first)
+            shortages = query.order_by(ShortageQueue.created_at.desc()).limit(10000).all()
+
+            if not shortages:
+                return jsonify({"success": False, "error": "ไม่พบข้อมูลที่ตรงกับเงื่อนไข"}), 404
+
+            # Create workbook
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Shortage Report"
+
+            # Header row
+            headers = [
+                "Order ID", "SKU", "Product Name", "Batch ID",
+                "Required", "Picked", "Shortage",
+                "Reason", "Type", "Status",
+                "Created At", "Created By",
+                "Resolved At", "Resolved By",
+                "Action Taken", "Replacement SKU", "Notes"
+            ]
+            ws.append(headers)
+
+            # Style header row
+            header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+            header_font = Font(bold=True, color="FFFFFF", size=11)
+            thin_border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+
+            for col_num, cell in enumerate(ws[1], 1):
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.border = thin_border
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+
+            # Add data rows
+            for shortage in shortages:
+                # Get product name from OrderLine
+                product_name = ""
+                if shortage.order_line:
+                    product_name = shortage.order_line.item_name or ""
+
+                row_data = [
+                    shortage.order_id,
+                    shortage.sku,
+                    product_name,
+                    shortage.original_batch_id or "",
+                    shortage.qty_required,
+                    shortage.qty_picked,
+                    shortage.qty_shortage,
+                    shortage.shortage_reason or "",
+                    shortage.shortage_type or "",
+                    shortage.status,
+                    shortage.created_at.strftime("%Y-%m-%d %H:%M") if shortage.created_at else "",
+                    shortage.created_by_username or "",
+                    shortage.resolved_at.strftime("%Y-%m-%d %H:%M") if shortage.resolved_at else "",
+                    shortage.resolved_by_username or "",
+                    shortage.action_taken or "",
+                    shortage.replacement_sku or "",
+                    shortage.resolution_notes or ""
+                ]
+                ws.append(row_data)
+
+                # Apply border to data rows
+                for cell in ws[ws.max_row]:
+                    cell.border = thin_border
+
+            # Auto-adjust column widths
+            for col_num in range(1, len(headers) + 1):
+                col_letter = get_column_letter(col_num)
+                max_length = 0
+
+                for cell in ws[col_letter]:
+                    try:
+                        if cell.value:
+                            max_length = max(max_length, len(str(cell.value)))
+                    except:
+                        pass
+
+                adjusted_width = min(max_length + 2, 50)  # Max width = 50
+                ws.column_dimensions[col_letter].width = adjusted_width
+
+            # Freeze header row
+            ws.freeze_panes = 'A2'
+
+            # Save to BytesIO
+            output = BytesIO()
+            wb.save(output)
+            output.seek(0)
+
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"Shortage_Report_{timestamp}.xlsx"
+
+            # Send file
+            from flask import send_file
+            return send_file(
+                output,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                as_attachment=True,
+                download_name=filename
+            )
+
+        except Exception as e:
+            print(f"ERROR in /api/shortage/export-excel: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                "success": False,
+                "error": f"เกิดข้อผิดพลาด: {str(e)}"
+            }), 500
+
+    @app.route("/api/shortage/mark", methods=["POST"])
+    @login_required
+    def api_mark_shortage():
+        """API สำหรับบันทึก Shortage และเพิ่มเข้า Shortage Queue"""
+        try:
+            data = request.get_json()
+            sku = data.get("sku", "").strip()
+            picked_qty = int(data.get("picked_qty", 0))
+            shortage_qty = int(data.get("shortage_qty", 0))
+            reason = data.get("reason", "").strip()
+
+            if not sku:
+                return jsonify({"success": False, "error": "กรุณาระบุ SKU"}), 400
+
+            if shortage_qty <= 0:
+                return jsonify({"success": False, "error": "จำนวนที่ขาดต้องมากกว่า 0"}), 400
+
+            if not reason:
+                return jsonify({"success": False, "error": "กรุณาระบุเหตุผล"}), 400
+
+            # หาออเดอร์ที่ยังหยิบไม่ครบ (จาก Batch ที่ Accept แล้ว)
+            orders = OrderLine.query.filter(
+                OrderLine.sku == sku,
+                OrderLine.dispatch_status != "dispatched",
+                OrderLine.accepted == True
+            ).order_by(OrderLine.order_time).all()
+
+            if not orders:
+                return jsonify({"success": False, "error": "ไม่พบออเดอร์ที่ต้องการ SKU นี้"}), 404
+
+            cu = current_user()
+            now = now_thai()
+
+            total_need = sum(o.qty for o in orders)
+            total_remaining = sum(o.qty - o.picked_qty for o in orders)
+
+            # Validate
+            if picked_qty + shortage_qty != total_remaining:
+                return jsonify({
+                    "success": False,
+                    "error": f"ข้อมูลไม่ถูกต้อง: หยิบได้ {picked_qty} + ขาด {shortage_qty} = {picked_qty + shortage_qty} แต่ต้องการทั้งหมด {total_remaining}"
+                }), 400
+
+            # 1. บันทึกการหยิบ (ถ้ามี)
+            remaining_to_pick = picked_qty
+            picked_orders_data = []
+
+            if picked_qty > 0:
+                # หยิบตามลำดับออเดอร์
+                for order in orders:
+                    if remaining_to_pick <= 0:
+                        break
+
+                    need = order.qty - order.picked_qty
+                    if need > 0:
+                        pick_this = min(need, remaining_to_pick)
+                        order.picked_qty += pick_this
+                        order.picked_at = now
+                        order.picked_by_user_id = cu.id
+                        order.picked_by_username = cu.username
+
+                        # อัปเดตสถานะ
+                        if order.picked_qty >= order.qty:
+                            order.dispatch_status = "ready"
+                        else:
+                            order.dispatch_status = "partial_ready"
+
+                        picked_orders_data.append({
+                            "order_id": order.order_id,
+                            "picked": pick_this,
+                            "status": "ready" if order.picked_qty >= order.qty else "partial_ready"
+                        })
+
+                        remaining_to_pick -= pick_this
+
+            # 2. สร้าง Shortage Records
+            remaining_shortage = shortage_qty
+            shortage_records_created = []
+
+            for order in orders:
+                if remaining_shortage <= 0:
+                    break
+
+                need = order.qty - order.picked_qty
+                if need > 0:
+                    shortage_this = min(need, remaining_shortage)
+
+                    # สร้าง Shortage Record
+                    shortage_record = ShortageQueue(
+                        order_line_id=order.id,
+                        order_id=order.order_id,
+                        sku=sku,
+                        qty_required=order.qty,
+                        qty_picked=order.picked_qty,
+                        qty_shortage=shortage_this,
+                        original_batch_id=order.batch_id,
+                        shortage_reason=reason,
+                        shortage_type='complete' if shortage_this == need else 'partial',
+                        status='pending',
+                        created_by_user_id=cu.id,
+                        created_by_username=cu.username
+                    )
+                    db.session.add(shortage_record)
+
+                    # อัปเดตสถานะออเดอร์
+                    if order.picked_qty == 0:
+                        order.dispatch_status = "shortage"  # ขาดหมด
+                    else:
+                        order.dispatch_status = "partial_ready"  # หยิบได้บางส่วน
+
+                    # ✅ Phase 2.2: อัปเดต shortage_qty field
+                    order.shortage_qty = (order.shortage_qty or 0) + shortage_this
+
+                    shortage_records_created.append({
+                        "order_id": order.order_id,
+                        "sku": sku,
+                        "shortage": shortage_this
+                    })
+
+                    remaining_shortage -= shortage_this
+
+            db.session.commit()
+
+            # Audit Log
+            log_audit(
+                action="mark_shortage",
+                details={
+                    "sku": sku,
+                    "picked_qty": picked_qty,
+                    "shortage_qty": shortage_qty,
+                    "reason": reason,
+                    "created_by": cu.username,
+                    "shortage_records": len(shortage_records_created),
+                    "orders_affected": len(picked_orders_data) + len(shortage_records_created)
+                }
+            )
+
+            return jsonify({
+                "success": True,
+                "sku": sku,
+                "picked_qty": picked_qty,
+                "shortage_qty": shortage_qty,
+                "reason": reason,
+                "picked_orders": picked_orders_data,
+                "shortage_records": shortage_records_created,
+                "total_shortage": shortage_qty,
+                "message": f"บันทึก Shortage สำเร็จ: {len(shortage_records_created)} รายการ"
+            })
+
+        except Exception as e:
+            print(f"ERROR in /api/shortage/mark: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                "success": False,
+                "error": f"เกิดข้อผิดพลาดในระบบ: {str(e)}"
+            }), 500
+
+    @app.route("/api/shortage/update", methods=["POST"])
+    @login_required
+    def api_update_shortage():
+        """API สำหรับอัพเดท Shortage Records ที่มีอยู่แล้ว (ป้องกันการสร้างซ้ำ)"""
+        try:
+            data = request.get_json()
+            sku = data.get("sku", "").strip()
+            picked_qty = int(data.get("picked_qty", 0))
+            shortage_qty = int(data.get("shortage_qty", 0))
+            reason = data.get("reason", "").strip()
+
+            if not sku:
+                return jsonify({"success": False, "error": "กรุณาระบุ SKU"}), 400
+
+            if shortage_qty <= 0:
+                return jsonify({"success": False, "error": "จำนวนที่ขาดต้องมากกว่า 0"}), 400
+
+            if not reason:
+                return jsonify({"success": False, "error": "กรุณาระบุเหตุผล"}), 400
+
+            # หา Shortage Records ที่มีอยู่แล้ว (pending status)
+            existing_records = ShortageQueue.query.filter(
+                ShortageQueue.sku == sku,
+                ShortageQueue.status == 'pending'
+            ).join(OrderLine, ShortageQueue.order_line_id == OrderLine.id).filter(
+                OrderLine.accepted == True
+            ).all()
+
+            if not existing_records:
+                return jsonify({
+                    "success": False,
+                    "error": "ไม่พบรายการ Shortage ที่ต้องการอัพเดท กรุณาใช้ 'บันทึก Shortage' แทน"
+                }), 404
+
+            cu = current_user()
+            now = now_thai()
+
+            # อัพเดทเหตุผลของ Shortage Records ทั้งหมด
+            updated_count = 0
+            for record in existing_records:
+                record.shortage_reason = reason
+                record.updated_at = now
+                record.updated_by_user_id = cu.id
+                record.updated_by_username = cu.username
+                updated_count += 1
+
+            db.session.commit()
+
+            # Audit Log
+            log_audit(
+                action="update_shortage",
+                details={
+                    "sku": sku,
+                    "new_reason": reason,
+                    "updated_by": cu.username,
+                    "records_updated": updated_count
+                }
+            )
+
+            return jsonify({
+                "success": True,
+                "sku": sku,
+                "shortage_qty": shortage_qty,
+                "reason": reason,
+                "shortage_records": [{"order_id": r.order_id, "qty_shortage": r.qty_shortage} for r in existing_records],
+                "total_shortage": sum(r.qty_shortage for r in existing_records),
+                "message": f"อัพเดท Shortage สำเร็จ: {updated_count} รายการ"
+            })
+
+        except Exception as e:
+            print(f"ERROR in /api/shortage/update: {str(e)}")
             import traceback
             traceback.print_exc()
             return jsonify({

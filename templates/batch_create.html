@@ -20,9 +20,9 @@
                 <div class="card border-primary h-100 hover-shadow">
                   <div class="card-body text-center">
                     <h3 class="text-primary">
-                      {% if plat == 'Shopee' %}🛒
-                      {% elif plat == 'Lazada' %}🛍️
-                      {% elif plat == 'TikTok' %}🎵
+                      {% if plat == 'Shopee' %}<i data-lucide="shopping-cart" style="width: 48px; height: 48px;"></i>
+                      {% elif plat == 'Lazada' %}<i data-lucide="shopping-bag" style="width: 48px; height: 48px;"></i>
+                      {% elif plat == 'TikTok' %}<i data-lucide="music" style="width: 48px; height: 48px;"></i>
                       {% endif %}
                     </h3>
                     <h5>{{ plat }}</h5>
@@ -125,7 +125,7 @@
                 </div>
 
                 <div class="alert alert-warning">
-                  <strong>⚠️ คำเตือน:</strong>
+                  <strong><i data-lucide="alert-triangle" style="width: 16px; height: 16px;"></i> คำเตือน:</strong>
                   <ul class="mb-0">
                     <li>Batch จะถูก <strong>Lock</strong> ทันทีหลังสร้าง</li>
                     <li>ออเดอร์ที่อยู่ใน Batch นี้จะไม่สามารถแก้ไขได้</li>
@@ -148,7 +148,7 @@
           {% else %}
           <!-- No pending orders -->
           <div class="alert alert-warning">
-            <h5>⚠️ ไม่มีออเดอร์รอสร้าง Batch</h5>
+            <h5><i data-lucide="alert-triangle" style="width: 20px; height: 20px;"></i> ไม่มีออเดอร์รอสร้าง Batch</h5>
             <p>ไม่พบออเดอร์ที่มีสถานะ "pending_batch" สำหรับ {{ platform }}</p>
             <a href="{{ url_for('batch_create') }}" class="btn btn-secondary">
               <i data-lucide="arrow-left"></i> กลับไปเลือก Platform ใหม่

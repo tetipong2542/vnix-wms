@@ -52,6 +52,50 @@
     </div>
   </div>
 
+  <!-- Filters -->
+  <div class="card mb-4">
+    <div class="card-header bg-light">
+      <h5 class="mb-0"><i data-lucide="filter"></i> ฟิลเตอร์</h5>
+    </div>
+    <div class="card-body">
+      <form method="get" action="{{ url_for('batch_list') }}" class="row g-3">
+        <div class="col-md-3">
+          <label class="form-label">Platform</label>
+          <select class="form-select" name="platform">
+            <option value="">ทั้งหมด</option>
+            <option value="Shopee" {% if platform_filter == 'Shopee' %}selected{% endif %}>Shopee</option>
+            <option value="Lazada" {% if platform_filter == 'Lazada' %}selected{% endif %}>Lazada</option>
+            <option value="TikTok" {% if platform_filter == 'TikTok' %}selected{% endif %}>TikTok</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">สถานะการส่งมอบ</label>
+          <select class="form-select" name="handover_status">
+            <option value="all" {% if handover_status == 'all' %}selected{% endif %}>ทั้งหมด</option>
+            <option value="pending" {% if handover_status == 'pending' %}selected{% endif %}>ยังไม่ส่งมอบ</option>
+            <option value="confirmed" {% if handover_status == 'confirmed' %}selected{% endif %}>ส่งมอบแล้ว</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">วันที่เริ่มต้น</label>
+          <input type="date" class="form-control" name="date_from" value="{{ date_from or '' }}">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">วันที่สิ้นสุด</label>
+          <input type="date" class="form-control" name="date_to" value="{{ date_to or '' }}">
+        </div>
+        <div class="col-md-2 d-flex align-items-end gap-2">
+          <button type="submit" class="btn btn-primary flex-grow-1">
+            <i data-lucide="search"></i> กรอง
+          </button>
+          <a href="{{ url_for('batch_list') }}" class="btn btn-secondary">
+            <i data-lucide="x"></i>
+          </a>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Batch List -->
   <div class="card">
     <div class="card-header bg-primary text-white">
@@ -70,6 +114,7 @@
             <th class="d-none d-lg-table-cell">Carriers</th>
             <th>Progress</th>
             <th>สถานะ</th>
+            <th>ส่งมอบ</th>
             <th class="d-none d-md-table-cell">สร้างโดย</th>
             <th>การกระทำ</th>
           </tr>
@@ -113,25 +158,47 @@
             </td>
             <td>
               {% set progress = batch_progress.get(batch.batch_id, {"total": 0, "dispatched": 0, "pending": 0, "percent": 0}) %}
-              <div class="d-flex align-items-center gap-2">
-                <div class="progress flex-grow-1" style="height: 20px; min-width: 100px;">
-                  <div class="progress-bar {% if progress.percent == 100 %}bg-success{% elif progress.percent >= 50 %}bg-info{% else %}bg-warning{% endif %}"
-                       role="progressbar"
-                       style="width: {{ progress.percent }}%"
-                       aria-valuenow="{{ progress.percent }}"
-                       aria-valuemin="0"
-                       aria-valuemax="100">
-                    {{ progress.percent }}%
+              <div class="d-flex flex-column gap-1">
+                <div class="d-flex align-items-center gap-2">
+                  <div class="progress flex-grow-1" style="height: 24px; min-width: 120px;">
+                    <div class="progress-bar fw-bold {% if progress.percent == 100 %}bg-success{% elif progress.percent >= 50 %}bg-info{% else %}bg-warning{% endif %}"
+                         role="progressbar"
+                         style="width: {{ progress.percent }}%"
+                         aria-valuenow="{{ progress.percent }}"
+                         aria-valuemin="0"
+                         aria-valuemax="100">
+                      {{ progress.percent }}%
+                    </div>
                   </div>
                 </div>
-                <small class="text-muted text-nowrap">{{ progress.dispatched }}/{{ progress.total }}</small>
+                {% if progress.percent >= 100 and not batch.handover_code %}
+                <button class="btn btn-success btn-sm mt-1" onclick="generateHandoverCodeFromList('{{ batch.batch_id }}')" id="btn-handover-{{ batch.batch_id }}">
+                  <i data-lucide="key" style="width: 12px; height: 12px;"></i> สร้างรหัสส่งมอบ
+                </button>
+                {% endif %}
               </div>
             </td>
             <td>
               {% if batch.locked %}
-                <span class="badge bg-success fs-6">🔒 Locked</span>
+                <span class="badge bg-success fs-6"><i data-lucide="lock" style="width: 14px; height: 14px;"></i> Locked</span>
               {% else %}
-                <span class="badge bg-warning text-dark fs-6">🔓 Unlocked</span>
+                <span class="badge bg-warning text-dark fs-6"><i data-lucide="unlock" style="width: 14px; height: 14px;"></i> Unlocked</span>
+              {% endif %}
+            </td>
+            <td class="text-center" id="handover-cell-{{ batch.batch_id }}">
+              {% if batch.handover_confirmed %}
+                <span class="badge bg-success fs-6"><i data-lucide="check-circle" style="width: 14px; height: 14px;"></i> ส่งแล้ว</span>
+                <br><small class="text-muted text-nowrap">{{ batch.handover_confirmed_at|thai_be }}</small>
+              {% elif batch.handover_code %}
+                <span class="badge bg-warning text-dark fs-6"><i data-lucide="clock" style="width: 14px; height: 14px;"></i> รอยืนยัน</span>
+                <br><code class="small fw-bold">{{ batch.handover_code }}</code>
+              {% else %}
+                {% set progress = batch_progress.get(batch.batch_id, {"percent": 0}) %}
+                {% if progress.percent >= 100 %}
+                  <span class="badge bg-info fs-6"><i data-lucide="clipboard-check" style="width: 14px; height: 14px;"></i> พร้อมส่ง</span>
+                {% else %}
+                  <span class="badge bg-secondary fs-6"><i data-lucide="pause-circle" style="width: 14px; height: 14px;"></i> ยังไม่พร้อม</span>
+                {% endif %}
               {% endif %}
             </td>
             <td class="d-none d-md-table-cell">{{ batch.created_by_username or '-' }}</td>
@@ -217,7 +284,7 @@
           </div>
 
           <div class="alert alert-warning">
-            <strong>⚠️ คำเตือน:</strong>
+            <strong><i data-lucide="alert-triangle" style="width: 16px; height: 16px;"></i> คำเตือน:</strong>
             <ul class="mb-0">
               <li>Batch จะถูก <strong>Lock</strong> ทันทีหลังสร้าง</li>
               <li>ออเดอร์ที่อยู่ใน Batch นี้จะไม่สามารถแก้ไขได้</li>
@@ -354,10 +421,53 @@ function confirmQuickCreate() {
   });
 }
 
+// Generate Handover Code from List
+function generateHandoverCodeFromList(batchId) {
+  const $btn = $(`#btn-handover-${batchId}`);
+
+  if (confirm(`คุณต้องการสร้างรหัสส่งมอบสำหรับ Batch ${batchId} หรือไม่?`)) {
+    $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> กำลังสร้าง...');
+
+    $.ajax({
+      url: `/api/batch/${batchId}/generate-handover-code`,
+      method: 'POST',
+      contentType: 'application/json',
+      success: function(data) {
+        if (data.success) {
+          // Update button - remove it
+          $btn.remove();
+
+          // Update handover cell
+          $(`#handover-cell-${batchId}`).html(`
+            <span class="badge bg-warning text-dark fs-6"><i data-lucide="clock" style="width: 14px; height: 14px;"></i> รอยืนยัน</span>
+            <br><code class="small fw-bold">${data.handover_code}</code>
+          `);
+
+          // Refresh icons
+          if (window.refreshIcons) window.refreshIcons();
+
+          // Show success message
+          alert(`สร้างรหัสส่งมอบสำเร็จ: ${data.handover_code}`);
+        } else {
+          alert('เกิดข้อผิดพลาด: ' + (data.error || 'ไม่สามารถสร้างรหัสได้'));
+          $btn.prop('disabled', false).html('<i data-lucide="key" style="width: 12px; height: 12px;"></i> สร้างรหัสส่งมอบ');
+          if (window.refreshIcons) window.refreshIcons();
+        }
+      },
+      error: function(xhr) {
+        const msg = xhr.responseJSON?.error || 'เกิดข้อผิดพลาดในการสร้างรหัส';
+        alert('เกิดข้อผิดพลาด: ' + msg);
+        $btn.prop('disabled', false).html('<i data-lucide="key" style="width: 12px; height: 12px;"></i> สร้างรหัสส่งมอบ');
+        if (window.refreshIcons) window.refreshIcons();
+      }
+    });
+  }
+}
+
 $(document).ready(function() {
   // Initialize DataTable (simple, no filters)
   $('#batchTable').DataTable({
-    order: [[3, 'desc']], // Sort by date descending
+    order: [], // ไม่เรียงลำดับใหม่ เพราะ backend เรียงให้แล้ว (ยังไม่ส่งมอบก่อน)
     pageLength: 25,
     language: {
       url: '//cdn.datatables.net/plug-ins/1.13.8/i18n/th.json'

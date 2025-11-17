@@ -1,0 +1,372 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="row justify-content-center">
+    <div class="col-lg-10">
+      <div class="card shadow-lg border-success border-3">
+        <div class="card-header bg-success text-white">
+          <h4 class="mb-0">
+            <i data-lucide="truck" style="width: 24px; height: 24px;"></i>
+            ยืนยันส่งมอบ Batch ให้ Courier
+          </h4>
+        </div>
+        <div class="card-body">
+          <!-- Instructions -->
+          <div class="alert alert-info mb-4">
+            <h6 class="alert-heading">
+              <i data-lucide="info"></i> วิธีใช้งาน
+            </h6>
+            <ol class="mb-0">
+              <li>สแกน QR Code ของรหัสส่งมอบ หรือพิมพ์รหัสด้วยตนเอง</li>
+              <li>ตรวจสอบข้อมูล Batch ให้ถูกต้อง</li>
+              <li>กดยืนยันส่งมอบเมื่อ Courier รับพัสดุแล้ว</li>
+            </ol>
+          </div>
+
+          <!-- Manual Input -->
+          <div class="mb-4">
+            <label for="handover-input" class="form-label fs-5">รหัสส่งมอบ (Handover Code):</label>
+            <div class="input-group input-group-lg">
+              <span class="input-group-text bg-success text-white">
+                <i data-lucide="key" style="width: 20px; height: 20px;"></i>
+              </span>
+              <input
+                type="text"
+                class="form-control form-control-lg text-center fw-bold"
+                id="handover-input"
+                placeholder="BH-YYYYMMDD-XXX"
+                autocomplete="off"
+                autofocus
+                style="font-size: 1.5rem; letter-spacing: 2px;"
+              >
+              <button class="btn btn-success btn-lg" type="button" onclick="submitHandoverCode()">
+                <i data-lucide="search" style="width: 20px; height: 20px;"></i> ตรวจสอบ
+              </button>
+            </div>
+            <small class="text-muted">ตัวอย่าง: BH-20251116-001</small>
+          </div>
+
+          <!-- Batch Info Display -->
+          <div id="batch-info-container" style="display: none;">
+            <div class="card border-primary mb-3">
+              <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                  <i data-lucide="package"></i> ข้อมูล Batch
+                </h5>
+              </div>
+              <div class="card-body">
+                <div class="row">
+                  <div class="col-md-6">
+                    <p class="mb-2"><strong>Batch ID:</strong> <span id="info-batch-id" class="text-primary fs-5"></span></p>
+                    <p class="mb-2"><strong>Platform:</strong> <span id="info-platform"></span></p>
+                    <p class="mb-2"><strong>Run:</strong> <span id="info-run"></span></p>
+                    <p class="mb-0"><strong>วันที่:</strong> <span id="info-date"></span></p>
+                  </div>
+                  <div class="col-md-6">
+                    <p class="mb-2"><strong>จำนวนออเดอร์:</strong> <span id="info-total-orders" class="fs-4 fw-bold text-success"></span> รายการ</p>
+                    <p class="mb-2"><strong>รหัสส่งมอบ:</strong> <code id="info-handover-code" class="fs-5"></code></p>
+                    <p class="mb-0"><strong>สร้างโดย:</strong> <span id="info-generated-by"></span></p>
+                  </div>
+                </div>
+
+                <!-- Carrier Summary -->
+                <div class="mt-3 pt-3 border-top">
+                  <h6 class="mb-2">สรุปตามขนส่ง:</h6>
+                  <div id="carrier-summary" class="d-flex gap-2 flex-wrap"></div>
+                </div>
+
+                <!-- Shop Summary -->
+                <div class="mt-3 pt-3 border-top">
+                  <h6 class="mb-2">สรุปตามร้าน (Top 5):</h6>
+                  <div id="shop-summary" class="row"></div>
+                </div>
+
+                <!-- Status Summary -->
+                <div class="mt-3 pt-3 border-top">
+                  <h6 class="mb-2">สรุปสถานะออเดอร์:</h6>
+                  <div class="row text-center">
+                    <div class="col-md-3">
+                      <div class="p-2 bg-light rounded">
+                        <h4 class="text-success mb-0" id="status-ready">0</h4>
+                        <small class="text-muted">พร้อมส่ง (Ready)</small>
+                      </div>
+                    </div>
+                    <div class="col-md-3">
+                      <div class="p-2 bg-light rounded">
+                        <h4 class="text-warning mb-0" id="status-partial">0</h4>
+                        <small class="text-muted">บางส่วน (Partial)</small>
+                      </div>
+                    </div>
+                    <div class="col-md-3">
+                      <div class="p-2 bg-light rounded">
+                        <h4 class="text-info mb-0" id="status-dispatched">0</h4>
+                        <small class="text-muted">ส่งแล้ว</small>
+                      </div>
+                    </div>
+                    <div class="col-md-3">
+                      <div class="p-2 bg-light rounded">
+                        <h4 class="text-primary mb-0" id="status-total">0</h4>
+                        <small class="text-muted">รวมทั้งหมด</small>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Confirm Actions -->
+            <div id="confirm-actions" class="card border-success">
+              <div class="card-header bg-success text-white">
+                <h5 class="mb-0">
+                  <i data-lucide="check-circle"></i> ยืนยันส่งมอบ
+                </h5>
+              </div>
+              <div class="card-body">
+                <div class="alert alert-warning">
+                  <p class="mb-0">
+                    <i data-lucide="alert-triangle" style="width: 16px; height: 16px;"></i>
+                    <strong>คำเตือน:</strong> เมื่อกดยืนยันแล้ว ระบบจะอัปเดตสถานะทุกออเดอร์เป็น "dispatched" ทันที
+                  </p>
+                </div>
+
+                <!-- Optional Notes -->
+                <div class="mb-3">
+                  <label for="notes-input" class="form-label">หมายเหตุ (ถ้ามี):</label>
+                  <input
+                    type="text"
+                    class="form-control"
+                    id="notes-input"
+                    placeholder="เช่น ชื่อคนรับจาก Courier, หมายเลขรถ ฯลฯ"
+                    maxlength="200"
+                  >
+                  <small class="text-muted">ไม่บังคับ - สามารถเว้นว่างได้</small>
+                </div>
+
+                <div class="d-grid gap-2">
+                  <button
+                    class="btn btn-success btn-lg"
+                    id="btn-confirm"
+                    onclick="confirmHandover()"
+                  >
+                    <i data-lucide="check-circle" style="width: 20px; height: 20px;"></i>
+                    ยืนยันส่งมอบ Batch นี้
+                  </button>
+                  <button class="btn btn-outline-secondary" onclick="resetForm()">
+                    <i data-lucide="x-circle" style="width: 16px; height: 16px;"></i>
+                    ยกเลิก / สแกนใหม่
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Success Message -->
+          <div id="success-message" class="alert alert-success d-none" role="alert">
+            <h5 class="alert-heading">
+              <i data-lucide="check-circle"></i> ส่งมอบสำเร็จ!
+            </h5>
+            <p id="success-text" class="mb-0"></p>
+            <hr>
+            <button class="btn btn-success mt-2" onclick="location.reload()">
+              สแกนรหัสถัดไป
+            </button>
+          </div>
+
+          <!-- Error Message -->
+          <div id="error-message" class="alert alert-danger d-none" role="alert">
+            <h6 class="alert-heading">
+              <i data-lucide="x-circle"></i> เกิดข้อผิดพลาด
+            </h6>
+            <p id="error-text" class="mb-0"></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentHandoverCode = null;
+
+$(document).ready(function() {
+  // Auto focus on input
+  $('#handover-input').focus();
+
+  // Submit on Enter
+  $('#handover-input').on('keypress', function(e) {
+    if (e.which === 13) {
+      submitHandoverCode();
+    }
+  });
+
+  // Refresh icons
+  if (window.refreshIcons) {
+    setTimeout(window.refreshIcons, 100);
+  }
+});
+
+function submitHandoverCode() {
+  const code = $('#handover-input').val().trim().toUpperCase();
+
+  if (!code) {
+    alert('กรุณากรอกรหัสส่งมอบ');
+    return;
+  }
+
+  // Hide previous messages
+  $('#error-message').addClass('d-none');
+  $('#success-message').addClass('d-none');
+  $('#batch-info-container').hide();
+
+  // Show loading
+  $('#handover-input').prop('disabled', true);
+
+  $.ajax({
+    url: '/api/handover/verify',
+    method: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify({ handover_code: code }),
+    success: function(data) {
+      if (data.success) {
+        currentHandoverCode = code;
+        displayBatchInfo(data.batch);
+        $('#handover-input').prop('disabled', false);
+      } else {
+        showError(data.error || 'ไม่พบรหัสส่งมอบนี้');
+        $('#handover-input').prop('disabled', false).val('').focus();
+      }
+    },
+    error: function(xhr) {
+      const msg = xhr.responseJSON?.error || 'ไม่พบรหัสส่งมอบนี้';
+      showError(msg);
+      $('#handover-input').prop('disabled', false).val('').focus();
+    }
+  });
+}
+
+function displayBatchInfo(batch) {
+  // Populate batch info
+  $('#info-batch-id').text(batch.batch_id);
+  $('#info-platform').html(`<span class="badge bg-primary">${batch.platform}</span>`);
+  $('#info-run').text('R' + batch.run_no);
+  $('#info-date').text(batch.batch_date);
+  $('#info-total-orders').text(batch.total_orders);
+  $('#info-handover-code').text(batch.handover_code);
+  $('#info-generated-by').text(batch.generated_by + ' เมื่อ ' + batch.generated_at);
+
+  // Carrier summary
+  const carrierHtml = Object.entries(batch.carrier_summary)
+    .filter(([_, count]) => count > 0)
+    .map(([carrier, count]) => {
+      const colorMap = {
+        'SPX': 'danger',
+        'Flash': 'warning text-dark',
+        'LEX': 'primary',
+        'J&T': 'success'
+      };
+      const color = colorMap[carrier] || 'secondary';
+      return `<span class="badge bg-${color}">${carrier}: ${count}</span>`;
+    })
+    .join(' ');
+  $('#carrier-summary').html(carrierHtml);
+
+  // Shop summary (Top 5)
+  const shopEntries = Object.entries(batch.shop_summary)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+  const shopHtml = shopEntries.map(([shop, count]) => `
+    <div class="col-md-4 mb-2">
+      <div class="p-2 bg-light rounded">
+        <strong>${count}</strong> - ${shop}
+      </div>
+    </div>
+  `).join('');
+  $('#shop-summary').html(shopHtml);
+
+  // Status summary
+  $('#status-ready').text(batch.status_summary.ready);
+  $('#status-partial').text(batch.status_summary.partial_ready);
+  $('#status-dispatched').text(batch.status_summary.dispatched);
+  $('#status-total').text(batch.status_summary.total);
+
+  // Show batch info
+  $('#batch-info-container').slideDown();
+
+  // Refresh icons
+  if (window.refreshIcons) {
+    setTimeout(window.refreshIcons, 100);
+  }
+}
+
+function confirmHandover() {
+  if (!currentHandoverCode) {
+    alert('กรุณาสแกนรหัสส่งมอบก่อน');
+    return;
+  }
+
+  const notes = $('#notes-input').val().trim();
+
+  if (!confirm('ยืนยันส่งมอบ Batch นี้ให้ Courier หรือไม่?')) {
+    return;
+  }
+
+  const $btn = $('#btn-confirm');
+  $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-2"></span>กำลังยืนยัน...');
+
+  $.ajax({
+    url: '/api/handover/confirm',
+    method: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify({
+      handover_code: currentHandoverCode,
+      notes: notes
+    }),
+    success: function(data) {
+      if (data.success) {
+        $('#batch-info-container').hide();
+        $('#success-text').text(data.message);
+        $('#success-message').removeClass('d-none');
+
+        // Vibrate if supported
+        if (navigator.vibrate) {
+          navigator.vibrate([200, 100, 200]);
+        }
+
+        // Refresh icons
+        if (window.refreshIcons) {
+          setTimeout(window.refreshIcons, 100);
+        }
+      } else {
+        showError(data.error || 'ไม่สามารถยืนยันได้');
+        $btn.prop('disabled', false).html('<i data-lucide="check-circle"></i> ยืนยันส่งมอบ Batch นี้');
+      }
+    },
+    error: function(xhr) {
+      const msg = xhr.responseJSON?.error || 'เกิดข้อผิดพลาดในการยืนยัน';
+      showError(msg);
+      $btn.prop('disabled', false).html('<i data-lucide="check-circle"></i> ยืนยันส่งมอบ Batch นี้');
+    }
+  });
+}
+
+function showError(message) {
+  $('#error-text').text(message);
+  $('#error-message').removeClass('d-none');
+
+  // Refresh icons
+  if (window.refreshIcons) {
+    setTimeout(window.refreshIcons, 100);
+  }
+}
+
+function resetForm() {
+  currentHandoverCode = null;
+  $('#handover-input').val('').focus();
+  $('#batch-info-container').hide();
+  $('#error-message').addClass('d-none');
+  $('#success-message').addClass('d-none');
+  $('#notes-input').val('');
+}
+</script>
+{% endblock %}

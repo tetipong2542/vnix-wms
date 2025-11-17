@@ -87,6 +87,11 @@
     <span class="badge bg-light text-dark">
       <i data-lucide="package" style="width: 14px; height: 14px;"></i> รวมจำนวน: {{ kpis.total_qty }}
     </span>
+    {% if kpis.dispatched > 0 %}
+    <span class="badge bg-info text-white">
+      <i data-lucide="truck" style="width: 14px; height: 14px;"></i> ส่งมอบแล้ว: {{ kpis.dispatched }}
+    </span>
+    {% endif %}
     <button type="button" class="badge bg-primary kpi-filter" data-status="" style="border: none; cursor: pointer;">
       <i data-lucide="shopping-cart" style="width: 14px; height: 14px;"></i> รวม Order
       <i data-lucide="filter" style="width: 12px; height: 12px; opacity: 0.7; margin-left: 4px;"></i>
@@ -155,8 +160,16 @@
       <option value="SHORTAGE" {% if status_sel=='SHORTAGE' %}selected{% endif %}>ไม่มีสินค้า</option>
       <option value="NOT_ENOUGH" {% if status_sel=='NOT_ENOUGH' %}selected{% endif %}>สินค้าไม่พอส่ง</option>
       <option value="PACKED" {% if status_sel=='PACKED' %}selected{% endif %}>แพ็คแล้ว</option>
+      <option value="DISPATCHED" {% if status_sel=='DISPATCHED' %}selected{% endif %}>ส่งมอบแล้ว</option>
       <option value="ORDER_READY" {% if status_sel=='ORDER_READY' %}selected{% endif %}>Orderพร้อมรับ</option>
       <option value="ORDER_LOW_STOCK" {% if status_sel=='ORDER_LOW_STOCK' %}selected{% endif %}>Orderสินค้าน้อย</option>
+    </select>
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">แสดงส่งแล้ว</label>
+    <select class="form-select" name="include_dispatched">
+      <option value="0" {% if not include_dispatched %}selected{% endif %}>ซ่อนส่งแล้ว</option>
+      <option value="1" {% if include_dispatched %}selected{% endif %}>แสดงทั้งหมด</option>
     </select>
   </div>
   <div class="col-12 d-flex gap-2 flex-wrap">
@@ -270,10 +283,12 @@
         <td class="sla-cell" data-status="{{ r.allocation_status }}" data-platform="{{ r.platform }}" data-ordertime="{{ r.order_time_iso }}">
           {% if r.allocation_status != 'PACKED' %}{{ r.sla }}{% endif %}
         </td>
-        <td>{{ r.logistic or '-' }}</td>
+        <td>{{ r.logistic|clean_logistic or '-' }}</td>
         <td>{{ r.sales_status or '-' }}</td>
         <td>
-          {% if r.allocation_status == "READY_ACCEPT" %}
+          {% if r.allocation_status == "DISPATCHED" %}
+            <span class="badge text-bg-info">ส่งมอบแล้ว</span>
+          {% elif r.allocation_status == "READY_ACCEPT" %}
             <span class="badge text-bg-success">แนะนำกดรับ</span>
           {% elif r.allocation_status == "ACCEPTED" %}
             <span class="badge text-bg-secondary">รับแล้ว</span>
@@ -290,7 +305,16 @@
           {% endif %}
         </td>
         <td class="text-nowrap">
-          {% if r.allocation_status in ["READY_ACCEPT","LOW_STOCK"] and not r.accepted %}
+          {% if r.actions_disabled %}
+            {# ✅ ซ่อนปุ่มถ้า: DISPATCHED, PACKED, หรือ Batch เสร็จสิ้นแล้ว #}
+            {% if r.allocation_status == "DISPATCHED" %}
+              <span class="text-muted small">ส่งมอบแล้ว</span>
+            {% elif r.get('batch_completed') %}
+              <span class="text-success small"><i data-lucide="check-circle" style="width: 14px; height: 14px;"></i> Batch เสร็จสิ้น</span>
+            {% else %}
+              <span class="text-muted small">-</span>
+            {% endif %}
+          {% elif r.allocation_status in ["READY_ACCEPT","LOW_STOCK"] and not r.accepted %}
             <form method="post" action="{{ url_for('accept_order', order_line_id=r.id) }}" class="d-inline"
                   onsubmit="return confirm('ยืนยันกดรับรายการนี้?')">
               <button class="btn btn-sm {% if r.allocation_status=='LOW_STOCK' %}btn-warning{% else %}btn-primary{% endif %}">

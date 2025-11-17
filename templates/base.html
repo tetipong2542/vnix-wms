@@ -100,6 +100,12 @@
                 <i data-lucide="plus-circle" style="width: 16px; height: 16px;"></i> สร้าง Batch ใหม่
               </a>
             </li>
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              <a class="dropdown-item" href="{{ url_for('shortage_queue') }}">
+                <i data-lucide="alert-triangle" style="width: 16px; height: 16px;"></i> Shortage Queue
+              </a>
+            </li>
           </ul>
         </li>
         <li class="nav-item dropdown">
@@ -120,6 +126,12 @@
             <li>
               <a class="dropdown-item" href="{{ url_for('scan_tracking') }}">
                 <i data-lucide="truck" style="width: 16px; height: 16px;"></i> 3. สแกนส่งของ (Tracking)
+              </a>
+            </li>
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              <a class="dropdown-item" href="{{ url_for('scan_handover') }}">
+                <i data-lucide="check-circle" style="width: 16px; height: 16px;"></i> ยืนยันส่งมอบ Batch
               </a>
             </li>
           </ul>

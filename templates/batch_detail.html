@@ -86,7 +86,7 @@
     <div class="col-md-3 col-6 mb-3">
       <div class="card bg-primary text-white h-100">
         <div class="card-body text-center">
-          <div class="display-3 fw-bold">📦</div>
+          <div class="display-3 fw-bold"><i data-lucide="package" style="width: 64px; height: 64px;"></i></div>
           <h1 class="display-3 fw-bold mb-2">{{ batch.total_orders }}</h1>
           <p class="mb-0 fs-6">จำนวนออเดอร์ทั้งหมด</p>
         </div>
@@ -97,7 +97,7 @@
     <div class="col-md-3 col-6 mb-3">
       <div class="card {% if batch.locked %}bg-success{% else %}bg-warning{% endif %} text-white h-100">
         <div class="card-body text-center">
-          <h1 class="display-3 mb-2">{% if batch.locked %}🔒{% else %}🔓{% endif %}</h1>
+          <h1 class="display-3 mb-2">{% if batch.locked %}<i data-lucide="lock" style="width: 64px; height: 64px;"></i>{% else %}<i data-lucide="unlock" style="width: 64px; height: 64px;"></i>{% endif %}</h1>
           <p class="mb-0 fs-5 fw-bold">{% if batch.locked %}Locked{% else %}Unlocked{% endif %}</p>
           <small class="opacity-75">สถานะ Batch</small>
         </div>
@@ -108,7 +108,7 @@
     <div class="col-md-3 col-6 mb-3">
       <div class="card bg-info text-white h-100">
         <div class="card-body text-center">
-          <div class="display-3 fw-bold">🔄</div>
+          <div class="display-3 fw-bold"><i data-lucide="refresh-cw" style="width: 64px; height: 64px;"></i></div>
           <h1 class="display-3 fw-bold mb-2">R{{ batch.run_no }}</h1>
           <p class="mb-0 fs-6">รอบที่</p>
         </div>
@@ -119,10 +119,48 @@
     <div class="col-md-3 col-6 mb-3">
       <div class="card bg-dark text-white h-100">
         <div class="card-body text-center">
-          <div class="display-4 mb-2">👤</div>
+          <div class="display-4 mb-2"><i data-lucide="user" style="width: 56px; height: 56px;"></i></div>
           <h6 class="mb-1">รับของโดย:</h6>
           <p class="mb-1 fs-5 fw-bold">{{ batch.created_by_username or 'System' }}</p>
           <small class="opacity-75">{{ batch.created_at|thai_be }}</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Overall Progress -->
+  <div class="row mb-4">
+    <div class="col-md-12">
+      <div class="card border-{% if batch_progress.progress_percent == 100 %}success{% elif batch_progress.progress_percent >= 50 %}info{% else %}warning{% endif %} border-3">
+        <div class="card-header bg-{% if batch_progress.progress_percent == 100 %}success{% elif batch_progress.progress_percent >= 50 %}info{% else %}warning{% endif %} text-white">
+          <h5 class="mb-0"><i data-lucide="trending-up"></i> ความคืบหน้ารวม (Overall Progress)</h5>
+        </div>
+        <div class="card-body">
+          <div class="row align-items-center">
+            <div class="col-md-8">
+              <div class="progress" style="height: 40px;">
+                <div class="progress-bar fs-5 fw-bold {% if batch_progress.progress_percent == 100 %}bg-success{% elif batch_progress.progress_percent >= 50 %}bg-info{% else %}bg-warning{% endif %}"
+                     role="progressbar"
+                     style="width: {{ batch_progress.progress_percent }}%"
+                     aria-valuenow="{{ batch_progress.progress_percent }}"
+                     aria-valuemin="0"
+                     aria-valuemax="100">
+                  {{ batch_progress.progress_percent }}%
+                </div>
+              </div>
+              <div class="mt-3 d-flex justify-content-between text-muted small">
+                <span><strong>หยิบแล้ว:</strong> {{ batch_progress.picked_qty }} ชิ้น</span>
+                <span><strong>Shortage ที่จัดการแล้ว:</strong> {{ batch_progress.shortage_resolved_qty }} ชิ้น</span>
+                <span><strong>เสร็จสิ้น:</strong> {{ batch_progress.completed_qty }} / {{ batch_progress.total_qty }} ชิ้น</span>
+              </div>
+            </div>
+            <div class="col-md-4 text-center">
+              <div class="display-1 fw-bold text-{% if batch_progress.progress_percent == 100 %}success{% elif batch_progress.progress_percent >= 50 %}info{% else %}warning{% endif %}">
+                {{ batch_progress.progress_percent }}%
+              </div>
+              <p class="mb-0 text-muted">Quantity-based Progress</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -180,11 +218,11 @@
               <div class="card border-info h-100 {% if loop.index <= 3 %}border-3{% endif %}">
                 <div class="card-body text-center p-3">
                   {% if loop.index == 1 %}
-                  <div class="badge bg-warning text-dark mb-2">🥇 Top 1</div>
+                  <div class="badge bg-warning text-dark mb-2"><i data-lucide="award" style="width: 14px; height: 14px;"></i> Top 1</div>
                   {% elif loop.index == 2 %}
-                  <div class="badge bg-secondary text-white mb-2">🥈 Top 2</div>
+                  <div class="badge bg-secondary text-white mb-2"><i data-lucide="award" style="width: 14px; height: 14px;"></i> Top 2</div>
                   {% elif loop.index == 3 %}
-                  <div class="badge bg-bronze text-white mb-2" style="background-color: #CD7F32;">🥉 Top 3</div>
+                  <div class="badge bg-bronze text-white mb-2" style="background-color: #CD7F32;"><i data-lucide="award" style="width: 14px; height: 14px;"></i> Top 3</div>
                   {% endif %}
                   <h3 class="text-info fw-bold mb-2 {% if loop.index <= 3 %}fs-2{% else %}fs-4{% endif %}">{{ count }}</h3>
                   <p class="mb-0 small {% if loop.index <= 3 %}fw-bold{% endif %}">{{ shop }}</p>
@@ -217,14 +255,15 @@
               <thead class="table-light">
                 <tr>
                   <th style="width: 5%;">#</th>
-                  <th style="width: 15%;">SKU</th>
-                  <th style="width: 25%;">สินค้า</th>
-                  <th class="text-center" style="width: 8%;">สต็อก</th>
-                  <th class="text-center" style="width: 8%;">ต้องการ</th>
-                  <th class="text-center" style="width: 8%;">หยิบแล้ว</th>
-                  <th class="text-center" style="width: 8%;">คงเหลือ</th>
-                  <th class="text-center" style="width: 8%;">ขาด</th>
-                  <th class="text-center" style="width: 15%;">สถานะ</th>
+                  <th style="width: 12%;">SKU</th>
+                  <th style="width: 20%;">สินค้า</th>
+                  <th class="text-center" style="width: 6%;">สต็อก</th>
+                  <th class="text-center" style="width: 6%;">ต้องการ</th>
+                  <th class="text-center" style="width: 6%;">หยิบแล้ว</th>
+                  <th class="text-center" style="width: 6%;">คงเหลือ</th>
+                  <th class="text-center" style="width: 6%;">ขาด</th>
+                  <th class="text-center" style="width: 12%;">สถานะ</th>
+                  <th class="text-center" style="width: 18%;">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -263,9 +302,26 @@
                   </td>
                   <td class="text-center">
                     <span class="badge bg-{{ item.status_badge }}">
-                      {% if item.status == 'completed' %}✅{% elif item.status == 'shortage' %}⚠️{% elif item.status == 'picking' %}🔄{% else %}⏳{% endif %}
+                      {% if item.status == 'completed' %}<i data-lucide="check-circle" style="width: 12px; height: 12px;"></i>{% elif item.status == 'shortage' %}<i data-lucide="alert-triangle" style="width: 12px; height: 12px;"></i>{% elif item.status == 'picking' %}<i data-lucide="refresh-cw" style="width: 12px; height: 12px;"></i>{% else %}<i data-lucide="clock" style="width: 12px; height: 12px;"></i>{% endif %}
                       {{ item.status_text }}
                     </span>
+                  </td>
+                  <td class="text-center">
+                    {% if item.total_shortage > 0 %}
+                      <button class="btn btn-sm btn-warning mb-1" onclick="viewShortageReason('{{ item.sku }}', '{{ batch.batch_id }}')" title="ดูเหตุผล">
+                        <i data-lucide="eye" style="width: 12px; height: 12px;"></i> ดูเหตุผล
+                      </button>
+                      <div class="btn-group btn-group-sm" role="group">
+                        <button class="btn btn-outline-success" onclick="quickResolveShortage('{{ item.sku }}', '{{ batch.batch_id }}')" title="จัดการเรียบร้อย">
+                          <i data-lucide="check" style="width: 12px; height: 12px;"></i>
+                        </button>
+                        <button class="btn btn-outline-danger" onclick="quickCancelShortage('{{ item.sku }}', '{{ batch.batch_id }}')" title="ยกเลิก">
+                          <i data-lucide="x" style="width: 12px; height: 12px;"></i>
+                        </button>
+                      </div>
+                    {% else %}
+                      <span class="text-muted small">-</span>
+                    {% endif %}
                   </td>
                 </tr>
                 {% endfor %}
@@ -283,6 +339,7 @@
                     {% set total = sku_progress|length %}
                     <span class="badge bg-primary">{{ completed }}/{{ total }} SKU</span>
                   </td>
+                  <td class="text-center">-</td>
                 </tr>
               </tfoot>
             </table>
@@ -295,10 +352,106 @@
     </div>
   </div>
 
+  <!-- Handover Code Section -->
+  {# ✅ ใช้ batch_progress จาก calculate_batch_progress() แทนการคำนวณเอง #}
+  {% if batch_progress.progress_percent >= 100 %}
+  <div class="row mb-4">
+    <div class="col-md-12">
+      <div class="card border-success border-3 shadow-lg">
+        <div class="card-header bg-success text-white">
+          <h5 class="mb-0"><i data-lucide="check-circle"></i> Batch เสร็จสิ้น - พร้อมส่งมอบ</h5>
+        </div>
+        <div class="card-body">
+          {% if not batch.handover_code %}
+            <!-- ยังไม่มีรหัส → แสดงปุ่มสร้าง -->
+            <div class="text-center py-4">
+              <div class="mb-3">
+                <i data-lucide="package-check" style="width: 64px; height: 64px;" class="text-success"></i>
+              </div>
+              <h4 class="mb-3">Batch นี้เสร็จสมบูรณ์แล้ว <i data-lucide="check-circle" style="width: 24px; height: 24px;"></i></h4>
+              <p class="text-muted mb-4">สร้างรหัสส่งมอบเพื่อใช้ยืนยันการส่งพัสดุให้ Courier</p>
+              <button class="btn btn-success btn-lg" onclick="generateHandoverCode()" id="btnGenerateCode">
+                <i data-lucide="key"></i> สร้างรหัสส่งมอบ (Handover Code)
+              </button>
+            </div>
+          {% else %}
+            <!-- มีรหัสแล้ว → แสดงรหัส + QR Code -->
+            <div class="row align-items-center">
+              <div class="col-md-4 text-center">
+                <div class="p-3 bg-white d-inline-block rounded border">
+                  <img src="{{ url_for('generate_qr', text=batch.handover_code) }}"
+                       alt="QR Code for {{ batch.handover_code }}"
+                       style="width: 250px; height: 250px;">
+                </div>
+                <h2 class="mt-3 fw-bold text-success">{{ batch.handover_code }}</h2>
+                <p class="text-muted mb-0">รหัสส่งมอบ Batch</p>
+                {% if batch.handover_confirmed %}
+                  <div class="mt-3">
+                    <span class="badge bg-success fs-6"><i data-lucide="check-circle" style="width: 14px; height: 14px;"></i> ส่งมอบแล้ว</span>
+                    <p class="small text-muted mt-2 mb-0">
+                      โดย: <strong>{{ batch.handover_confirmed_by_username }}</strong><br>
+                      เมื่อ: {{ batch.handover_confirmed_at|thai_be }}
+                    </p>
+                    {% if batch.handover_notes %}
+                    <p class="small text-muted mt-2 mb-0">
+                      หมายเหตุ: {{ batch.handover_notes }}
+                    </p>
+                    {% endif %}
+                  </div>
+                {% endif %}
+              </div>
+              <div class="col-md-8">
+                <h4 class="mb-3">
+                  <i data-lucide="qr-code" style="width: 24px; height: 24px;"></i>
+                  วิธีใช้รหัสส่งมอบ
+                </h4>
+                <div class="alert alert-info mb-3">
+                  <h6 class="alert-heading">ขั้นตอนการส่งมอบพัสดุ:</h6>
+                  <ol class="mb-0">
+                    <li>พิมพ์ใบส่งมอบหรือแสดง QR Code นี้</li>
+                    <li>เมื่อ Courier มารับพัสดุ ให้สแกนรหัสนี้ที่หน้า <strong>"ยืนยันส่งมอบ"</strong></li>
+                    <li>ระบบจะบันทึกว่าส่งมอบแล้วทั้ง Batch โดยอัตโนมัติ</li>
+                  </ol>
+                </div>
+
+                {% if batch.handover_confirmed %}
+                  <div class="alert alert-success">
+                    <i data-lucide="check-circle"></i>
+                    <strong>Batch นี้ส่งมอบเรียบร้อยแล้ว</strong>
+                  </div>
+                {% else %}
+                  <div class="d-flex gap-2 mb-3">
+                    <a href="{{ url_for('batch_print_handover', batch_id=batch.batch_id) }}"
+                       class="btn btn-primary"
+                       target="_blank">
+                      <i data-lucide="printer"></i> พิมพ์ใบส่งมอบ
+                    </a>
+                    <a href="{{ url_for('scan_handover') }}"
+                       class="btn btn-success"
+                       target="_blank">
+                      <i data-lucide="check-circle"></i> ไปหน้ายืนยันส่งมอบ
+                    </a>
+                  </div>
+                {% endif %}
+
+                <div class="small text-muted">
+                  <i data-lucide="info"></i>
+                  รหัสสร้างโดย: <strong>{{ batch.handover_code_generated_by_username }}</strong>
+                  เมื่อ {{ batch.handover_code_generated_at|thai_be }}
+                </div>
+              </div>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Orders List -->
   <div class="card">
     <div class="card-header bg-dark text-white">
-      <h5 class="mb-0">📋 รายการออเดอร์ใน Batch ({{ orders|length }} items)</h5>
+      <h5 class="mb-0"><i data-lucide="clipboard-list" style="width: 20px; height: 20px;"></i> รายการออเดอร์ใน Batch ({{ orders|length }} items)</h5>
     </div>
     <div class="card-body">
       {% if orders %}
@@ -356,6 +509,123 @@ $(document).ready(function() {
     setTimeout(window.refreshIcons, 100);
   }
 });
+
+// Generate Handover Code
+function generateHandoverCode() {
+  const $btn = $('#btnGenerateCode');
+
+  if (confirm('คุณต้องการสร้างรหัสส่งมอบสำหรับ Batch นี้หรือไม่?')) {
+    $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-2"></span>กำลังสร้าง...');
+
+    $.ajax({
+      url: '/api/batch/{{ batch.batch_id }}/generate-handover-code',
+      method: 'POST',
+      contentType: 'application/json',
+      success: function(data) {
+        if (data.success) {
+          alert('สร้างรหัสส่งมอบสำเร็จ: ' + data.handover_code);
+          location.reload();
+        } else {
+          alert('เกิดข้อผิดพลาด: ' + (data.error || 'ไม่สามารถสร้างรหัสได้'));
+          $btn.prop('disabled', false).html('<i data-lucide="key"></i> สร้างรหัสส่งมอบ (Handover Code)');
+        }
+      },
+      error: function(xhr) {
+        const msg = xhr.responseJSON?.error || 'เกิดข้อผิดพลาดในการสร้างรหัส';
+        alert('เกิดข้อผิดพลาด: ' + msg);
+        $btn.prop('disabled', false).html('<i data-lucide="key"></i> สร้างรหัสส่งมอบ (Handover Code)');
+      }
+    });
+  }
+}
+
+// View Shortage Reason
+function viewShortageReason(sku, batchId) {
+  $.ajax({
+    url: '/api/shortage/queue',
+    method: 'GET',
+    data: { sku: sku, batch: batchId, status: 'pending' },
+    success: function(data) {
+      if (data.success && data.shortages && data.shortages.length > 0) {
+        let message = `เหตุผลการขาดของ SKU: ${sku}\n\n`;
+        data.shortages.forEach((item, index) => {
+          message += `${index + 1}. Order: ${item.order_id}\n`;
+          message += `   ขาด: ${item.qty_shortage} ชิ้น\n`;
+          message += `   เหตุผล: ${item.reason}\n`;
+          message += `   สถานะ: ${item.status}\n\n`;
+        });
+        alert(message);
+      } else {
+        alert('ไม่พบข้อมูล Shortage สำหรับ SKU นี้');
+      }
+    },
+    error: function() {
+      alert('เกิดข้อผิดพลาดในการโหลดข้อมูล');
+    }
+  });
+}
+
+// Quick Resolve Shortage
+function quickResolveShortage(sku, batchId) {
+  if (!confirm(`ยืนยันการจัดการเรียบร้อยสำหรับ SKU: ${sku}?`)) {
+    return;
+  }
+
+  $.ajax({
+    url: '/api/shortage/quick-action',
+    method: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify({
+      sku: sku,
+      batch_id: batchId,
+      action: 'resolved',
+      notes: 'จัดการเรียบร้อยผ่าน Quick Action'
+    }),
+    success: function(data) {
+      if (data.success) {
+        alert('จัดการเรียบร้อยแล้ว');
+        location.reload();
+      } else {
+        alert('เกิดข้อผิดพลาด: ' + (data.error || 'ไม่สามารถดำเนินการได้'));
+      }
+    },
+    error: function() {
+      alert('เกิดข้อผิดพลาดในการดำเนินการ');
+    }
+  });
+}
+
+// Quick Cancel Shortage
+function quickCancelShortage(sku, batchId) {
+  const notes = prompt(`ยกเลิก Shortage สำหรับ SKU: ${sku}\n\nกรุณาระบุหมายเหตุ:`, '');
+
+  if (notes === null) {
+    return; // User clicked cancel
+  }
+
+  $.ajax({
+    url: '/api/shortage/quick-action',
+    method: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify({
+      sku: sku,
+      batch_id: batchId,
+      action: 'cancelled',
+      notes: notes || 'ยกเลิกผ่าน Quick Action'
+    }),
+    success: function(data) {
+      if (data.success) {
+        alert('ยกเลิก Shortage แล้ว');
+        location.reload();
+      } else {
+        alert('เกิดข้อผิดพลาด: ' + (data.error || 'ไม่สามารถดำเนินการได้'));
+      }
+    },
+    error: function() {
+      alert('เกิดข้อผิดพลาดในการดำเนินการ');
+    }
+  });
+}
 </script>
 
 <style>

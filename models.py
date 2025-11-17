@@ -73,12 +73,19 @@ class OrderLine(db.Model):
 
     # Picking Management
     picked_qty = db.Column(db.Integer, default=0)  # จำนวนที่หยิบไปแล้ว
+    shortage_qty = db.Column(db.Integer, default=0)  # ✅ Phase 2.2: จำนวนที่ขาด
     picked_at = db.Column(db.DateTime)  # เวลาที่หยิบ
     picked_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
     picked_by_username = db.Column(db.String(64))
 
     # Dispatch Management
-    dispatch_status = db.Column(db.String(20), default="pending")  # pending, ready, dispatched
+    # dispatch_status possible values (Phase 2.3: Documentation):
+    # - "pending": ยังไม่เริ่มหยิบ (default) - picked_qty = 0
+    # - "ready": หยิบครบแล้ว พร้อมส่ง - picked_qty >= qty
+    # - "partial_ready": หยิบได้บางส่วน หรือมี shortage ที่จัดการแล้ว - 0 < picked_qty < qty OR มี shortage resolved
+    # - "dispatched": ส่งมอบให้ขนส่งแล้ว (confirmed dispatch) - ได้สแกน tracking แล้ว
+    # - "shortage": (deprecated) ไม่ใช้แล้ว - ใช้ partial_ready แทน
+    dispatch_status = db.Column(db.String(20), default="pending")
     dispatched_at = db.Column(db.DateTime)  # เวลาที่ส่งมอบให้ขนส่ง
     dispatched_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
     dispatched_by_username = db.Column(db.String(64))
@@ -107,8 +114,23 @@ class Batch(db.Model):
     # Shop summary (stored as JSON string)
     shop_summary = db.Column(db.Text)  # JSON: {"shop_name": count}
 
-    # FR-07: Lock status
+    # FR-07: Lock status (Phase 2.4: Add audit fields)
     locked = db.Column(db.Boolean, default=True)
+    locked_at = db.Column(db.DateTime)
+    locked_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    locked_by_username = db.Column(db.String(64))
+
+    # Handover Code System (Batch completion & dispatch)
+    handover_code = db.Column(db.String(20), unique=True, index=True)  # e.g., BH-20251116-001
+    handover_code_generated_at = db.Column(db.DateTime)
+    handover_code_generated_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    handover_code_generated_by_username = db.Column(db.String(64))
+
+    handover_confirmed = db.Column(db.Boolean, default=False)
+    handover_confirmed_at = db.Column(db.DateTime)
+    handover_confirmed_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    handover_confirmed_by_username = db.Column(db.String(64))
+    handover_notes = db.Column(db.Text)  # Notes from courier/warehouse staff
 
     # Audit fields
     created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
@@ -121,6 +143,60 @@ class Batch(db.Model):
     # Composite index for common queries
     __table_args__ = (
         db.Index('idx_batch_platform_date', 'platform', 'batch_date'),
+    )
+
+
+class ShortageQueue(db.Model):
+    """Shortage Queue Management - Option 2: Queue-Based System"""
+    __tablename__ = "shortage_queue"
+    id = db.Column(db.Integer, primary_key=True)
+
+    # Order & SKU Information
+    order_line_id = db.Column(db.Integer, db.ForeignKey("order_lines.id"), nullable=False)
+    order_id = db.Column(db.String(128), nullable=False, index=True)
+    sku = db.Column(db.String(64), nullable=False, index=True)
+
+    # Quantity Information
+    qty_required = db.Column(db.Integer, nullable=False)  # จำนวนที่ต้องการ
+    qty_picked = db.Column(db.Integer, default=0)  # จำนวนที่หยิบได้
+    qty_shortage = db.Column(db.Integer, nullable=False)  # จำนวนที่ขาด
+
+    # Batch Reference
+    original_batch_id = db.Column(db.String(64), db.ForeignKey("batches.batch_id"))
+
+    # Shortage Details
+    shortage_reason = db.Column(db.Text)  # เช่น "สต็อกหมด", "สินค้าเสียหาย"
+    shortage_type = db.Column(db.String(20), default='partial')  # partial, complete
+
+    # Status Tracking
+    # pending: รอจัดการ
+    # waiting_stock: รอสต็อกเข้า
+    # cancelled: ยกเลิกแล้ว
+    # replaced: แทน SKU แล้ว
+    # resolved: จัดการเรียบร้อย
+    status = db.Column(db.String(20), default='pending', index=True)
+
+    # Resolution Actions
+    action_taken = db.Column(db.String(50))  # wait_stock, cancel, replace_sku, contact_customer, partial_ship
+    replacement_sku = db.Column(db.String(64))  # SKU ที่แทน (ถ้ามี)
+    resolution_notes = db.Column(db.Text)  # หมายเหตุการจัดการ
+
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(TH_TZ), index=True)
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    created_by_username = db.Column(db.String(64))
+
+    resolved_at = db.Column(db.DateTime)
+    resolved_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    resolved_by_username = db.Column(db.String(64))
+
+    # Relationships
+    order_line = db.relationship("OrderLine", backref="shortage_records")
+
+    # Indexes for common queries
+    __table_args__ = (
+        db.Index('idx_shortage_status_created', 'status', 'created_at'),
+        db.Index('idx_shortage_batch', 'original_batch_id', 'status'),
     )
 
 

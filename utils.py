@@ -36,6 +36,25 @@ def normalize_platform(p: Optional[str]) -> Optional[str]:
     key = re.sub(r"[^a-zA-Zก-๙]", "", p).lower()
     return aliases.get(key, p)
 
+# ===================== Logistic Type Cleaner =====================
+def clean_logistic(logistic: Optional[str]) -> str:
+    """
+    ตัดข้อความยาวๆ ของ logistic type ให้สั้นลงและอ่านง่ายขึ้น
+
+    Examples:
+        "Standard Delivery - ส่งธรรมดาในประเทศ-Flash Express" → "Flash Express"
+        "Standard Delivery - ส่งธรรมดาในประเทศ-" → ""
+        "J&T Express" → "J&T Express"
+    """
+    if not logistic:
+        return ""
+
+    # ตัดข้อความ "Standard Delivery - ส่งธรรมดาในประเทศ-" ออก
+    cleaned = logistic.replace("Standard Delivery - ส่งธรรมดาในประเทศ-", "").strip()
+
+    # ถ้าเหลือแค่ว่างเปล่า ให้คืนค่า "Standard"
+    return cleaned if cleaned else "Standard"
+
 # ===================== Now/Format helpers =====================
 def now_thai() -> datetime:
     return datetime.now(TH_TZ)

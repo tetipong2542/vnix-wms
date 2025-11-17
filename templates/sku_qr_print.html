@@ -256,7 +256,7 @@
 <body>
   <!-- Header -->
   <div class="header">
-    <h1>📦 QR Code สำหรับ SKU</h1>
+    <h1><i data-lucide="package" style="width: 32px; height: 32px; vertical-align: middle;"></i> QR Code สำหรับ SKU</h1>
     <div class="batch-info">
       <strong>Batch:</strong> {{ batch.batch_id }} |
       <strong>Platform:</strong> {{ batch.platform }} |
@@ -275,7 +275,7 @@
   <!-- Section 1: Batch QR Code -->
   <div class="section">
     <div class="section-header batch">
-      <span>📦</span>
+      <i data-lucide="package" style="width: 20px; height: 20px;"></i>
       <span>Section 1: QR Code สำหรับรับงาน Batch</span>
     </div>
     <div class="qr-grid batch-grid">
@@ -303,7 +303,7 @@
   <!-- Section 2: Tracking QR Codes -->
   <div class="section">
     <div class="section-header tracking">
-      <span>🚚</span>
+      <i data-lucide="truck" style="width: 20px; height: 20px;"></i>
       <span>Section 2: QR Code Tracking Numbers ({{ total_trackings or 0 }} รายการ)</span>
     </div>
     {% if tracking_list and tracking_list|length > 0 %}
@@ -320,7 +320,7 @@
     </div>
     {% else %}
     <div class="alert alert-warning" style="text-align: center; padding: 20px; background: #fef3c7; border: 2px solid #f59e0b; border-radius: 8px; margin: 20px 0;">
-      <strong>⚠️ ยังไม่มี Tracking Number ใน Batch นี้</strong>
+      <strong><i data-lucide="alert-triangle" style="width: 20px; height: 20px; vertical-align: middle;"></i> ยังไม่มี Tracking Number ใน Batch นี้</strong>
       <p style="margin-top: 10px; color: #92400e;">Tracking Number จะถูกเพิ่มหลังจากที่มีการ Import Order หรือ Assign Tracking</p>
     </div>
     {% endif %}
@@ -329,7 +329,7 @@
   <!-- Section 3: SKU QR Codes -->
   <div class="section">
     <div class="section-header">
-      <span>🏷️</span>
+      <i data-lucide="tag" style="width: 20px; height: 20px;"></i>
       <span>Section 3: QR Code สำหรับ SKU ({{ total_skus }} รายการ)</span>
     </div>
     <div class="qr-grid">
@@ -357,10 +357,17 @@
 
   <!-- Action Buttons (hidden when printing) -->
   <div class="no-print">
-    <button onclick="window.print()">🖨️ พิมพ์ QR Code</button>
+    <button onclick="window.print()"><i data-lucide="printer" style="width: 16px; height: 16px; vertical-align: middle;"></i> พิมพ์ QR Code</button>
     <button class="btn-back" onclick="window.location.href='{{ url_for('batch_detail', batch_id=batch.batch_id) }}'">
-      ← กลับไป Batch
+      <i data-lucide="arrow-left" style="width: 16px; height: 16px; vertical-align: middle;"></i> กลับไป Batch
     </button>
   </div>
+  
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script>
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons();
+    }
+  </script>
 </body>
 </html>

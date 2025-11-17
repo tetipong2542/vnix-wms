@@ -148,14 +148,68 @@
                   </div>
                 </div>
                 <hr>
+
+                <!-- Existing Shortage Warning -->
+                <div id="existing-shortage-warning" class="mb-3" style="display: none;">
+                  <div class="alert alert-warning">
+                    <h6 class="alert-heading">
+                      <i data-lucide="alert-circle" style="width: 16px; height: 16px;"></i>
+                      พบรายการ Shortage ที่มีอยู่แล้ว
+                    </h6>
+                    <p class="mb-2">SKU นี้มี <strong id="existing-shortage-count-display">0</strong> รายการใน Shortage Queue แล้ว</p>
+                    <p class="mb-0 small">กรุณาไปแก้ไขที่หน้า <a href="{{ url_for('shortage_queue') }}" target="_blank" class="alert-link">Shortage Queue</a> หรือกดปุ่มด้านล่างเพื่อแก้ไขเหตุผล</p>
+                  </div>
+                </div>
+
+                <!-- Shortage Section -->
+                <div id="shortage-section" class="mb-3" style="display: none;">
+                  <div class="card border-warning">
+                    <div class="card-header bg-warning bg-opacity-10">
+                      <h6 class="mb-0 text-warning">
+                        <i data-lucide="alert-triangle" style="width: 16px; height: 16px;"></i>
+                        สินค้าขาด / หยิบได้ไม่ครบ
+                      </h6>
+                    </div>
+                    <div class="card-body">
+                      <div class="mb-3">
+                        <label class="form-label">จำนวนที่หยิบได้จริง:</label>
+                        <input type="number" class="form-control" id="shortage-picked-qty" value="0" min="0">
+                        <small class="text-muted">ระบุ 0 ถ้าหยิบไม่ได้เลย</small>
+                      </div>
+                      <div class="mb-3">
+                        <label class="form-label">เหตุผล:</label>
+                        <select class="form-select" id="shortage-reason-select" onchange="toggleShortageReasonInput()">
+                          <option value="">-- เลือกเหตุผล --</option>
+                          <option value="สต็อกหมด">สต็อกหมด</option>
+                          <option value="สินค้าเสียหาย">สินค้าเสียหาย</option>
+                          <option value="หาไม่เจอ">หาไม่เจอ</option>
+                          <option value="อื่นๆ">อื่นๆ (ระบุเอง)</option>
+                        </select>
+                      </div>
+                      <div class="mb-3" id="shortage-reason-input-container" style="display: none;">
+                        <label class="form-label">ระบุเหตุผล:</label>
+                        <input type="text" class="form-control" id="shortage-reason-input" placeholder="เช่น สินค้าอยู่ผิดที่">
+                      </div>
+                      <div class="alert alert-info small mb-0">
+                        <i data-lucide="info" style="width: 14px; height: 14px;"></i>
+                        เมื่อบันทึก Shortage ออเดอร์จะถูกย้ายไปยัง <strong>Shortage Queue</strong> เพื่อให้ Admin จัดการ
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <div class="d-grid gap-2">
                   <button class="btn btn-success btn-lg" onclick="confirmPick()">
                     <i data-lucide="check-circle" style="width: 20px; height: 20px;"></i>
-                    ยืนยันการหยิบ
+                    ยืนยันการหยิบ (หยิบครบ)
                   </button>
-                  <button class="btn btn-warning" onclick="markShortage()" id="mark-shortage-btn" style="display: none;">
+                  <button class="btn btn-warning btn-lg" onclick="toggleShortageSection()" id="toggle-shortage-btn">
                     <i data-lucide="alert-circle" style="width: 16px; height: 16px;"></i>
-                    Mark as Shortage (บันทึกว่าสินค้าขาด)
+                    <span id="shortage-btn-text">สินค้าขาด / หยิบได้ไม่ครบ</span>
+                  </button>
+                  <button class="btn btn-danger" onclick="confirmShortage()" id="confirm-shortage-btn" style="display: none;">
+                    <i data-lucide="alert-octagon" style="width: 16px; height: 16px;"></i>
+                    <span id="confirm-shortage-btn-text">บันทึก Shortage</span>
                   </button>
                   <button class="btn btn-outline-secondary" onclick="resetSKU()">
                     <i data-lucide="x-circle" style="width: 16px; height: 16px;"></i>
@@ -187,7 +241,7 @@
           <!-- Error Display -->
           <div id="error-container" class="mt-4" style="display: none;">
             <div class="alert alert-danger">
-              <h5>⚠ เกิดข้อผิดพลาด</h5>
+              <h5><i data-lucide="alert-triangle" style="width: 20px; height: 20px;"></i> เกิดข้อผิดพลาด</h5>
               <p id="error-message" class="mb-0"></p>
             </div>
             <button class="btn btn-outline-secondary" onclick="resetSKU()">
@@ -346,19 +400,19 @@ function showSKUInfo(data) {
   }
   safeSetText('max-qty-display', maxQty);
 
-  // แสดง stock warning ถ้าสต็อกไม่พอ และป้องกันการหยิบเกิน
+  // ✅ แสดง stock warning ถ้าสต็อกไม่พอ + จัดการปุ่มตาม UX Flow ใหม่
   const confirmPickBtn = document.querySelector('.btn-success.btn-lg');
+  const toggleShortageBtn = document.getElementById('toggle-shortage-btn');
+  const confirmShortageBtn = document.getElementById('confirm-shortage-btn');
 
   if (!data.can_fulfill && data.total_remaining > 0) {
     safeSetText('stock-available', data.stock_qty);
     safeSetText('stock-needed', data.total_remaining);
 
     const stockWarning = document.getElementById('stock-warning');
-    const markShortageBtn = document.getElementById('mark-shortage-btn');
     const pickingStatusAlert = document.getElementById('picking-status-alert');
 
     if (stockWarning) stockWarning.style.display = 'block';
-    if (markShortageBtn) markShortageBtn.style.display = 'block';
     if (pickingStatusAlert) {
       pickingStatusAlert.classList.remove('alert-info');
       pickingStatusAlert.classList.add('alert-warning');
@@ -367,40 +421,82 @@ function showSKUInfo(data) {
     // ตั้งค่า suggested quantity
     if (pickQtyInput) pickQtyInput.value = data.suggested_pick_qty;
 
-    // ⚠️ DISABLE ปุ่มยืนยันการหยิบถ้าสต็อกไม่พอ (ป้องกันการมักง่าย)
-    if (confirmPickBtn) {
-      if (data.stock_qty === 0) {
-        confirmPickBtn.disabled = true;
-        confirmPickBtn.classList.remove('btn-success');
-        confirmPickBtn.classList.add('btn-secondary');
-        confirmPickBtn.innerHTML = '<i data-lucide="x-circle" style="width: 20px; height: 20px;"></i> สต็อกหมด - กรุณา Mark as Shortage';
-      } else if (data.stock_qty < data.total_remaining) {
-        // มีสต็อกบ้าง แต่ไม่พอ - อนุญาตให้หยิบได้แค่ที่มี
-        confirmPickBtn.disabled = false;
-        confirmPickBtn.classList.remove('btn-secondary');
-        confirmPickBtn.classList.add('btn-warning');
-        confirmPickBtn.innerHTML = '<i data-lucide="alert-triangle" style="width: 20px; height: 20px;"></i> ยืนยันการหยิบ (บางส่วน)';
+    // ✅ UX Flow ใหม่: แสดงปุ่มตามสถานะสต็อก
+    if (data.stock_qty === 0) {
+      // กรณี: สต็อกหมดเลย (0 ชิ้น)
+      // ซ่อนปุ่ม "ยืนยันการหยิบ"
+      if (confirmPickBtn) confirmPickBtn.style.display = 'none';
+
+      // ซ่อนปุ่ม Toggle (ไม่จำเป็น)
+      if (toggleShortageBtn) toggleShortageBtn.style.display = 'none';
+
+      // แสดงปุ่ม "บันทึก Shortage" ทันที
+      if (confirmShortageBtn) {
+        confirmShortageBtn.style.display = 'block';
+        confirmShortageBtn.classList.remove('btn-danger');
+        confirmShortageBtn.classList.add('btn-warning');
+        confirmShortageBtn.innerHTML = '<i data-lucide="alert-octagon" style="width: 16px; height: 16px;"></i> บันทึก Shortage (สต็อกหมด)';
       }
+
+      // แสดง shortage section ทันที + ตั้งค่า picked = 0
+      const shortageSection = document.getElementById('shortage-section');
+      if (shortageSection) shortageSection.style.display = 'block';
+      document.getElementById('shortage-picked-qty').value = 0;
+      document.getElementById('shortage-picked-qty').max = 0;
+      document.getElementById('shortage-picked-qty').disabled = true; // ล็อคเนื่องจากหยิบไม่ได้
+
+    } else if (data.stock_qty < data.total_remaining) {
+      // กรณี: มีสต็อกบ้าง แต่ไม่พอ (เช่น มี 1 ชิ้น แต่ต้องการ 2 ชิ้น)
+      // ซ่อนปุ่ม "ยืนยันการหยิบ" (เพราะหยิบไม่ครบอยู่ดี)
+      if (confirmPickBtn) confirmPickBtn.style.display = 'none';
+
+      // ซ่อนปุ่ม Toggle
+      if (toggleShortageBtn) toggleShortageBtn.style.display = 'none';
+
+      // แสดงปุ่ม "บันทึก Shortage" ทันที
+      if (confirmShortageBtn) {
+        confirmShortageBtn.style.display = 'block';
+        confirmShortageBtn.classList.remove('btn-danger');
+        confirmShortageBtn.classList.add('btn-warning');
+        confirmShortageBtn.innerHTML = '<i data-lucide="alert-octagon" style="width: 16px; height: 16px;"></i> บันทึก Shortage (หยิบได้บางส่วน)';
+      }
+
+      // แสดง shortage section ทันที + ตั้งค่า picked = สต็อกที่มี
+      const shortageSection = document.getElementById('shortage-section');
+      if (shortageSection) shortageSection.style.display = 'block';
+      document.getElementById('shortage-picked-qty').value = data.stock_qty;
+      document.getElementById('shortage-picked-qty').max = data.stock_qty;
+      document.getElementById('shortage-picked-qty').disabled = false;
     }
   } else {
+    // ✅ กรณี: สต็อกพอ หรือ หยิบครบแล้ว
     const stockWarning = document.getElementById('stock-warning');
-    const markShortageBtn = document.getElementById('mark-shortage-btn');
     const pickingStatusAlert = document.getElementById('picking-status-alert');
 
     if (stockWarning) stockWarning.style.display = 'none';
-    if (markShortageBtn) markShortageBtn.style.display = 'none';
     if (pickingStatusAlert) {
       pickingStatusAlert.classList.remove('alert-warning');
       pickingStatusAlert.classList.add('alert-info');
     }
 
-    // เปิดใช้งานปุ่มยืนยันการหยิบปกติ
+    // แสดงปุ่ม "ยืนยันการหยิบ" ปกติ
     if (confirmPickBtn) {
+      confirmPickBtn.style.display = 'block';
       confirmPickBtn.disabled = false;
       confirmPickBtn.classList.remove('btn-secondary', 'btn-warning');
       confirmPickBtn.classList.add('btn-success');
-      confirmPickBtn.innerHTML = '<i data-lucide="check-circle" style="width: 20px; height: 20px;"></i> ยืนยันการหยิบ';
+      confirmPickBtn.innerHTML = '<i data-lucide="check-circle" style="width: 20px; height: 20px;"></i> ยืนยันการหยิบ (หยิบครบ)';
     }
+
+    // แสดงปุ่ม Toggle Shortage (เผื่อต้องการ mark shortage ทีหลัง)
+    if (toggleShortageBtn) toggleShortageBtn.style.display = 'block';
+
+    // ซ่อนปุ่ม Confirm Shortage
+    if (confirmShortageBtn) confirmShortageBtn.style.display = 'none';
+
+    // ซ่อน shortage section
+    const shortageSection = document.getElementById('shortage-section');
+    if (shortageSection) shortageSection.style.display = 'none';
 
     // ตั้งค่า default quantity
     if (pickQtyInput) pickQtyInput.value = Math.min(data.total_remaining, 1);
@@ -437,6 +533,40 @@ function showSKUInfo(data) {
   } else {
     const ordersList = document.getElementById('orders-list');
     if (ordersList) ordersList.style.display = 'none';
+  }
+
+  // Handle existing shortage records
+  const existingShortageWarning = document.getElementById('existing-shortage-warning');
+  const shortageBtnText = document.getElementById('shortage-btn-text');
+  const confirmShortageBtnText = document.getElementById('confirm-shortage-btn-text');
+
+  if (data.has_pending_shortage && data.existing_shortage_count > 0) {
+    // Show warning
+    if (existingShortageWarning) {
+      existingShortageWarning.style.display = 'block';
+      safeSetText('existing-shortage-count-display', data.existing_shortage_count);
+    }
+
+    // Change button text to Edit mode
+    if (shortageBtnText) {
+      shortageBtnText.textContent = 'แก้ไข Shortage ที่มีอยู่';
+    }
+    if (confirmShortageBtnText) {
+      confirmShortageBtnText.textContent = 'อัพเดท Shortage';
+    }
+  } else {
+    // Hide warning
+    if (existingShortageWarning) {
+      existingShortageWarning.style.display = 'none';
+    }
+
+    // Reset button text to Create mode
+    if (shortageBtnText) {
+      shortageBtnText.textContent = 'สินค้าขาด / หยิบได้ไม่ครบ';
+    }
+    if (confirmShortageBtnText) {
+      confirmShortageBtnText.textContent = 'บันทึก Shortage';
+    }
   }
 
   const skuInfoContainer = document.getElementById('sku-info-container');
@@ -477,7 +607,7 @@ function confirmPick() {
 
   // ⚠️ ตรวจสอบว่าหยิบไม่เกินสต็อกที่มี (ป้องกันการผิดพลาด)
   if (qty > currentSKU.stock_qty) {
-    alert(`❌ ไม่สามารถหยิบได้!\n\nสต็อกมีเพียง ${currentSKU.stock_qty} ชิ้น แต่คุณพยายามหยิบ ${qty} ชิ้น\n\nกรุณาหยิบไม่เกิน ${currentSKU.stock_qty} ชิ้น หรือกด "Mark as Shortage"`);
+    alert(`ไม่สามารถหยิบได้!\n\nสต็อกมีเพียง ${currentSKU.stock_qty} ชิ้น แต่คุณพยายามหยิบ ${qty} ชิ้น\n\nกรุณาหยิบไม่เกิน ${currentSKU.stock_qty} ชิ้น หรือกด "Mark as Shortage"`);
     return;
   }
 
@@ -595,23 +725,30 @@ function markShortage() {
 function showShortageSuccess(data) {
   let message = `
     <strong>SKU:</strong> ${data.sku}<br>
-    <strong class="text-danger">บันทึก Shortage:</strong> ${data.total_shortage} ชิ้น<br>
+    <strong class="text-danger">บันทึก Shortage:</strong> ${data.shortage_qty || data.total_shortage} ชิ้น<br>
   `;
 
-  // แสดงรายการออเดอร์ที่มี shortage
-  if (data.shortage_orders && data.shortage_orders.length > 0) {
+  // แสดงรายการออเดอร์ที่มี shortage (รองรับทั้ง shortage_orders และ shortage_records)
+  const shortageList = data.shortage_records || data.shortage_orders || [];
+  if (shortageList.length > 0) {
     message += '<hr><small><strong>ออเดอร์ที่ขาดสินค้า:</strong><ul class="mb-0 mt-1">';
-    data.shortage_orders.forEach(order => {
-      message += `<li class="text-danger">${order.order_id}: ขาด ${order.shortage} ชิ้น</li>`;
+    shortageList.forEach(item => {
+      message += `<li class="text-danger">${item.order_id}: ขาด ${item.shortage || item.qty_shortage} ชิ้น</li>`;
     });
     message += '</ul></small>';
   }
 
-  message += '<hr><p class="small mb-0">ออเดอร์เหล่านี้จะถูกเก็บไว้ใน Batch จนกว่าจะเติมสต็อก</p>';
+  // แสดงข้อมูลการหยิบ (ถ้ามี)
+  if (data.picked_qty > 0) {
+    message += `<br><strong class="text-success">หยิบได้:</strong> ${data.picked_qty} ชิ้น`;
+  }
+
+  message += '<hr><p class="small mb-0"><i data-lucide="info" style="width: 14px; height: 14px;"></i> ออเดอร์เหล่านี้ถูกย้ายไปยัง <strong>Shortage Queue</strong> แล้ว</p>';
 
   document.getElementById('success-message').innerHTML = message;
   document.getElementById('success-container').style.display = 'block';
   document.getElementById('sku-info-container').style.display = 'none';
+  document.getElementById('scanner-container').style.display = 'none';
 
   if (window.refreshIcons) window.refreshIcons();
 }
@@ -736,6 +873,145 @@ function quickAssignSKU(sku) {
   setTimeout(() => {
     input.classList.remove('bg-warning', 'bg-opacity-25');
   }, 500);
+}
+
+// Shortage Section Functions
+function toggleShortageSection() {
+  const section = document.getElementById('shortage-section');
+  const toggleBtn = document.getElementById('toggle-shortage-btn');
+  const confirmBtn = document.getElementById('confirm-shortage-btn');
+  const shortageBtnText = document.getElementById('shortage-btn-text');
+
+  if (section.style.display === 'none') {
+    section.style.display = 'block';
+    if (shortageBtnText) {
+      shortageBtnText.textContent = 'ยกเลิก';
+    }
+    toggleBtn.classList.remove('btn-warning');
+    toggleBtn.classList.add('btn-outline-secondary');
+    confirmBtn.style.display = 'block';
+
+    // ตั้งค่าเริ่มต้น
+    const totalRemaining = currentSKU ? currentSKU.total_remaining : 0;
+    document.getElementById('shortage-picked-qty').value = 0;
+    document.getElementById('shortage-picked-qty').max = totalRemaining;
+  } else {
+    section.style.display = 'none';
+
+    // Reset button text based on whether there are existing shortage records
+    if (currentSKU && currentSKU.has_pending_shortage) {
+      if (shortageBtnText) {
+        shortageBtnText.textContent = 'แก้ไข Shortage ที่มีอยู่';
+      }
+    } else {
+      if (shortageBtnText) {
+        shortageBtnText.textContent = 'สินค้าขาด / หยิบได้ไม่ครบ';
+      }
+    }
+
+    toggleBtn.classList.remove('btn-outline-secondary');
+    toggleBtn.classList.add('btn-warning');
+    confirmBtn.style.display = 'none';
+  }
+
+  if (window.refreshIcons) window.refreshIcons();
+}
+
+function toggleShortageReasonInput() {
+  const select = document.getElementById('shortage-reason-select');
+  const container = document.getElementById('shortage-reason-input-container');
+
+  if (select.value === 'อื่นๆ') {
+    container.style.display = 'block';
+  } else {
+    container.style.display = 'none';
+  }
+}
+
+function confirmShortage() {
+  if (!currentSKU) {
+    alert('กรุณาสแกน SKU ก่อน');
+    return;
+  }
+
+  const pickedQty = parseInt(document.getElementById('shortage-picked-qty').value) || 0;
+  const reasonSelect = document.getElementById('shortage-reason-select').value;
+  const reasonInput = document.getElementById('shortage-reason-input').value.trim();
+
+  // Validate
+  if (!reasonSelect) {
+    alert('กรุณาเลือกเหตุผล');
+    return;
+  }
+
+  if (reasonSelect === 'อื่นๆ' && !reasonInput) {
+    alert('กรุณาระบุเหตุผล');
+    return;
+  }
+
+  const totalRemaining = currentSKU.total_remaining;
+  const shortageQty = totalRemaining - pickedQty;
+
+  if (shortageQty <= 0) {
+    alert('จำนวนที่ขาดต้องมากกว่า 0\n\nถ้าหยิบได้ครบ กรุณาใช้ปุ่ม "ยืนยันการหยิบ" แทน');
+    return;
+  }
+
+  const reason = reasonSelect === 'อื่นๆ' ? reasonInput : reasonSelect;
+
+  // Check if we're in edit mode (existing shortage records)
+  const isEditMode = currentSKU && currentSKU.has_pending_shortage;
+  const actionText = isEditMode ? 'อัพเดท' : 'บันทึก';
+
+  const confirmMessage = `ยืนยัน${actionText} Shortage?\n\n` +
+    `SKU: ${currentSKU.sku}\n` +
+    `ต้องการทั้งหมด: ${totalRemaining} ชิ้น\n` +
+    `หยิบได้: ${pickedQty} ชิ้น\n` +
+    `ขาด: ${shortageQty} ชิ้น\n` +
+    `เหตุผล: ${reason}` +
+    (isEditMode ? `\n\nรายการ Shortage เดิมจะถูกอัพเดท` : '');
+
+  if (!confirm(confirmMessage)) {
+    return;
+  }
+
+  isProcessing = true;
+
+  // Hide UI
+  document.getElementById('sku-info-container').style.display = 'none';
+
+  // Show loading
+  const scannerContainer = document.getElementById('scanner-container');
+  scannerContainer.style.display = 'block';
+  scannerContainer.innerHTML = `<div class="text-center py-4"><div class="spinner-border text-warning"></div><p class="mt-2">กำลัง${actionText} Shortage...</p></div>`;
+
+  // Call appropriate API endpoint
+  const apiEndpoint = isEditMode ? '/api/shortage/update' : '/api/shortage/mark';
+
+  fetch(apiEndpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sku: currentSKU.sku,
+      picked_qty: pickedQty,
+      shortage_qty: shortageQty,
+      reason: reason
+    })
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      showShortageSuccess(data);
+    } else {
+      showError(data.error);
+    }
+  })
+  .catch(err => {
+    showError('เกิดข้อผิดพลาด: ' + err.message);
+  })
+  .finally(() => {
+    isProcessing = false;
+  });
 }
 
 // Initialize

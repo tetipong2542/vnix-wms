@@ -1,16 +1,560 @@
-
 {% extends "base.html" %}
+
 {% block content %}
-<h4>ล้างข้อมูล</h4>
-<form method="post" class="row g-3">
-  <div class="col-md-3">
-    <select name="scope" class="form-select" required>
-      <option value="today">ลบเฉพาะข้อมูลของวันนี้</option>
-      <option value="all">ลบข้อมูลออเดอร์ทั้งหมด</option>
-    </select>
+<div class="container mt-4">
+  <div class="row justify-content-center">
+    <div class="col-lg-8">
+      <div class="card border-danger shadow-lg">
+        <div class="card-header bg-danger text-white">
+          <h4 class="mb-0">
+            <i data-lucide="trash-2" style="width: 24px; height: 24px;"></i>
+            ล้างข้อมูลระบบ
+          </h4>
+        </div>
+        <div class="card-body">
+          <!-- Warning Alert -->
+          <div class="alert alert-warning">
+            <h5 class="alert-heading">
+              <i data-lucide="alert-triangle" style="width: 20px; height: 20px;"></i>
+              คำเตือน!
+            </h5>
+            <p class="mb-0">
+              การลบข้อมูลจะ<strong>ไม่สามารถกู้คืนได้</strong> กรุณาเลือกข้อมูลที่ต้องการลบและยืนยันด้วยรหัสผ่าน
+            </p>
+          </div>
+
+          <!-- Checkboxes for Delete Options -->
+          <div class="card mb-4">
+            <div class="card-header bg-light">
+              <h6 class="mb-0">เลือกข้อมูลที่ต้องการลบ</h6>
+            </div>
+            <div class="card-body">
+
+              <!-- Orders Section -->
+              <div class="mb-4">
+                <h6 class="text-primary mb-3">
+                  <i data-lucide="package" style="width: 16px; height: 16px;"></i>
+                  ข้อมูลออเดอร์
+                  <button class="btn btn-sm btn-outline-primary float-end" onclick="showPreview('orders')">
+                    <i data-lucide="eye" style="width: 14px; height: 14px;"></i> ดูข้อมูล
+                  </button>
+                </h6>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="orders_today" id="opt_orders_today">
+                  <label class="form-check-label" for="opt_orders_today">
+                    <i data-lucide="calendar" style="width: 14px; height: 14px;"></i> ลบออเดอร์ของวันนี้
+                  </label>
+                </div>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="orders_week" id="opt_orders_week">
+                  <label class="form-check-label" for="opt_orders_week">
+                    <i data-lucide="calendar-days" style="width: 14px; height: 14px;"></i> ลบออเดอร์สัปดาห์นี้ (7 วันล่าสุด)
+                  </label>
+                </div>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="orders_month" id="opt_orders_month">
+                  <label class="form-check-label" for="opt_orders_month">
+                    <i data-lucide="calendar-range" style="width: 14px; height: 14px;"></i> ลบออเดอร์เดือนนี้ (30 วันล่าสุด)
+                  </label>
+                </div>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="orders_all" id="opt_orders_all">
+                  <label class="form-check-label text-danger" for="opt_orders_all">
+                    <i data-lucide="alert-triangle" style="width: 14px; height: 14px;"></i> ลบออเดอร์ทั้งหมด
+                  </label>
+                </div>
+              </div>
+
+              <!-- Batches Section -->
+              <div class="mb-4">
+                <h6 class="text-success mb-3">
+                  <i data-lucide="layers" style="width: 16px; height: 16px;"></i>
+                  ข้อมูล Batch
+                  <button class="btn btn-sm btn-outline-success float-end" onclick="showPreview('batches')">
+                    <i data-lucide="eye" style="width: 14px; height: 14px;"></i> ดูข้อมูล
+                  </button>
+                </h6>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="batches_today" id="opt_batches_today">
+                  <label class="form-check-label" for="opt_batches_today">
+                    <i data-lucide="calendar" style="width: 14px; height: 14px;"></i> ลบ Batch ของวันนี้
+                  </label>
+                </div>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="batches_week" id="opt_batches_week">
+                  <label class="form-check-label" for="opt_batches_week">
+                    <i data-lucide="calendar-days" style="width: 14px; height: 14px;"></i> ลบ Batch สัปดาห์นี้
+                  </label>
+                </div>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="batches_unlocked" id="opt_batches_unlocked">
+                  <label class="form-check-label" for="opt_batches_unlocked">
+                    <i data-lucide="unlock" style="width: 14px; height: 14px;"></i> ลบ Batch ที่ Unlocked
+                  </label>
+                </div>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="batches_completed" id="opt_batches_completed">
+                  <label class="form-check-label" for="opt_batches_completed">
+                    <i data-lucide="check-circle" style="width: 14px; height: 14px;"></i> ลบ Batch ที่ส่งมอบแล้ว
+                  </label>
+                </div>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="batches_all" id="opt_batches_all">
+                  <label class="form-check-label text-danger" for="opt_batches_all">
+                    <i data-lucide="alert-triangle" style="width: 14px; height: 14px;"></i> ลบ Batch ทั้งหมด
+                  </label>
+                </div>
+              </div>
+
+              <!-- Products & Stock Section -->
+              <div class="mb-4">
+                <h6 class="text-warning mb-3">
+                  <i data-lucide="box" style="width: 16px; height: 16px;"></i>
+                  ข้อมูลสินค้าและสต็อก
+                  <button class="btn btn-sm btn-outline-warning float-end" onclick="showPreview('products')">
+                    <i data-lucide="eye" style="width: 14px; height: 14px;"></i> ดูข้อมูล
+                  </button>
+                </h6>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="products_all" id="opt_products_all">
+                  <label class="form-check-label text-danger" for="opt_products_all">
+                    <i data-lucide="package" style="width: 14px; height: 14px;"></i> ลบข้อมูลสินค้าทั้งหมด
+                  </label>
+                </div>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="stock_all" id="opt_stock_all">
+                  <label class="form-check-label text-danger" for="opt_stock_all">
+                    <i data-lucide="bar-chart-3" style="width: 14px; height: 14px;"></i> ลบข้อมูลสต็อกทั้งหมด
+                  </label>
+                </div>
+              </div>
+
+              <!-- Audit Logs Section -->
+              <div class="mb-4">
+                <h6 class="text-info mb-3">
+                  <i data-lucide="file-text" style="width: 16px; height: 16px;"></i>
+                  ข้อมูล Audit Logs
+                  <button class="btn btn-sm btn-outline-info float-end" onclick="showPreview('audit_logs')">
+                    <i data-lucide="eye" style="width: 14px; height: 14px;"></i> ดูข้อมูล
+                  </button>
+                </h6>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="audit_logs_old" id="opt_audit_logs_old">
+                  <label class="form-check-label" for="opt_audit_logs_old">
+                    <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> ลบ Audit Logs (เก่ากว่า 30 วัน)
+                  </label>
+                </div>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="audit_logs" id="opt_audit_logs">
+                  <label class="form-check-label text-danger" for="opt_audit_logs">
+                    <i data-lucide="file-text" style="width: 14px; height: 14px;"></i> ลบ Audit Logs ทั้งหมด
+                  </label>
+                </div>
+              </div>
+
+              <!-- Shortage Queue Section -->
+              <div class="mb-4">
+                <h6 class="text-danger mb-3">
+                  <i data-lucide="alert-circle" style="width: 16px; height: 16px;"></i>
+                  ข้อมูล Shortage Queue
+                  <button class="btn btn-sm btn-outline-danger float-end" onclick="showPreview('shortage_queue')">
+                    <i data-lucide="eye" style="width: 14px; height: 14px;"></i> ดูข้อมูล
+                  </button>
+                </h6>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="shortage_queue_pending" id="opt_shortage_queue_pending">
+                  <label class="form-check-label" for="opt_shortage_queue_pending">
+                    <i data-lucide="clock" style="width: 14px; height: 14px;"></i> ลบ Shortage Queue (รอจัดการ)
+                  </label>
+                </div>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="shortage_queue_resolved" id="opt_shortage_queue_resolved">
+                  <label class="form-check-label" for="opt_shortage_queue_resolved">
+                    <i data-lucide="check-circle" style="width: 14px; height: 14px;"></i> ลบ Shortage Queue (จัดการแล้ว)
+                  </label>
+                </div>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="shortage_queue_all" id="opt_shortage_queue_all">
+                  <label class="form-check-label text-danger" for="opt_shortage_queue_all">
+                    <i data-lucide="alert-triangle" style="width: 14px; height: 14px;"></i> ลบ Shortage Queue ทั้งหมด
+                  </label>
+                </div>
+              </div>
+
+              <!-- Delete All Section -->
+              <div class="mb-3">
+                <h6 class="text-danger mb-3">
+                  <i data-lucide="alert-octagon" style="width: 16px; height: 16px;"></i>
+                  ลบทั้งหมด (อันตราย!)
+                </h6>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="all_data" id="opt_all_data">
+                  <label class="form-check-label text-danger fw-bold" for="opt_all_data">
+                    <i data-lucide="flame" style="width: 14px; height: 14px;"></i> ลบข้อมูลทั้งหมดในระบบ (Orders, Batches, Products, Stock, Logs, Shortage Queue)
+                  </label>
+                </div>
+              </div>
+
+              <!-- Summary -->
+              <div id="deleteSummary" class="alert alert-info d-none mt-3">
+                <h6 class="alert-heading">รายการที่เลือกจะลบ:</h6>
+                <ul id="selectedList" class="mb-0"></ul>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Password Confirmation -->
+          <div id="passwordSection" class="card border-warning">
+            <div class="card-header bg-warning text-dark">
+              <h6 class="mb-0">
+                <i data-lucide="lock" style="width: 16px; height: 16px;"></i>
+                ยืนยันการลบข้อมูล
+              </h6>
+            </div>
+            <div class="card-body">
+              <p class="text-danger fw-bold mb-3">
+                <i data-lucide="alert-triangle" style="width: 16px; height: 16px;"></i> กรุณาพิมพ์รหัสผ่านเพื่อยืนยันการลบ
+              </p>
+              <div class="mb-3">
+                <label for="confirmPassword" class="form-label">รหัสผ่านยืนยัน:</label>
+                <input
+                  type="password"
+                  id="confirmPassword"
+                  class="form-control form-control-lg text-center"
+                  placeholder="กรุณาใส่รหัสผ่าน"
+                  autocomplete="off"
+                  style="letter-spacing: 2px; font-family: monospace;">
+                <div class="form-text">พิมพ์รหัสผ่านที่ถูกต้องเพื่อเปิดใช้งานปุ่มลบ</div>
+              </div>
+
+              <!-- Final Confirmation Checkbox -->
+              <div class="form-check mb-3">
+                <input
+                  class="form-check-input"
+                  type="checkbox"
+                  id="finalConfirm">
+                <label class="form-check-label" for="finalConfirm">
+                  <i data-lucide="check-square" style="width: 14px; height: 14px;"></i> ฉันเข้าใจว่าข้อมูลที่ลบจะไม่สามารถกู้คืนได้
+                </label>
+              </div>
+
+              <!-- Delete Button -->
+              <button
+                id="btnDelete"
+                class="btn btn-danger btn-lg w-100"
+                onclick="executeDelete()">
+                <i data-lucide="trash-2" style="width: 20px; height: 20px;"></i>
+                ยืนยันลบข้อมูล
+              </button>
+            </div>
+          </div>
+
+          <!-- Success/Error Messages -->
+          <div id="resultMessage" class="d-none mt-3"></div>
+        </div>
+
+        <div class="card-footer text-muted">
+          <small>
+            <i data-lucide="info" style="width: 14px; height: 14px;"></i>
+            หากมีข้อสงสัย กรุณาติดต่อผู้ดูแลระบบก่อนลบข้อมูล
+          </small>
+        </div>
+      </div>
+    </div>
   </div>
-  <div class="col-md-2">
-    <button class="btn btn-danger">ล้างข้อมูล</button>
+</div>
+
+<!-- Preview Modal -->
+<div class="modal fade" id="previewModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="previewModalTitle">
+          <i data-lucide="eye" style="width: 20px; height: 20px;"></i>
+          ดูข้อมูล
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="previewModalBody">
+        <div class="text-center py-5">
+          <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <p class="mt-3 text-muted">กำลังโหลดข้อมูล...</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
+      </div>
+    </div>
   </div>
-</form>
+</div>
+
+<script>
+// Scope labels for display
+const scopeLabels = {
+  'orders_today': 'ลบออเดอร์ของวันนี้',
+  'orders_week': 'ลบออเดอร์สัปดาห์นี้',
+  'orders_month': 'ลบออเดอร์เดือนนี้',
+  'orders_all': 'ลบออเดอร์ทั้งหมด',
+  'batches_today': 'ลบ Batch ของวันนี้',
+  'batches_week': 'ลบ Batch สัปดาห์นี้',
+  'batches_unlocked': 'ลบ Batch ที่ Unlocked',
+  'batches_completed': 'ลบ Batch ที่ส่งมอบแล้ว',
+  'batches_all': 'ลบ Batch ทั้งหมด',
+  'products_all': 'ลบข้อมูลสินค้าทั้งหมด',
+  'stock_all': 'ลบข้อมูลสต็อกทั้งหมด',
+  'audit_logs': 'ลบ Audit Logs ทั้งหมด',
+  'audit_logs_old': 'ลบ Audit Logs (เก่ากว่า 30 วัน)',
+  'shortage_queue_pending': 'ลบ Shortage Queue (รอจัดการ)',
+  'shortage_queue_resolved': 'ลบ Shortage Queue (จัดการแล้ว)',
+  'shortage_queue_all': 'ลบ Shortage Queue ทั้งหมด',
+  'all_data': 'ลบข้อมูลทั้งหมดในระบบ'
+};
+
+let selectedScopes = [];
+
+// When any checkbox changes
+$('.delete-option').on('change', function() {
+  selectedScopes = [];
+  $('.delete-option:checked').each(function() {
+    selectedScopes.push($(this).val());
+  });
+
+  if (selectedScopes.length > 0) {
+    // Show summary
+    let html = '';
+    selectedScopes.forEach(scope => {
+      html += `<li>${scopeLabels[scope]}</li>`;
+    });
+    $('#selectedList').html(html);
+    $('#deleteSummary').removeClass('d-none');
+  } else {
+    // Hide summary if nothing selected
+    $('#deleteSummary').addClass('d-none');
+  }
+});
+
+// Password validation - just for visual feedback
+$('#confirmPassword').on('input', function() {
+  const password = $(this).val();
+
+  if (password === 'vnixdelete') {
+    $(this).removeClass('is-invalid').addClass('is-valid');
+  } else {
+    $(this).removeClass('is-valid');
+    if (password.length > 0) {
+      $(this).addClass('is-invalid');
+    }
+  }
+});
+
+// Execute delete
+function executeDelete() {
+  // Read current selected checkboxes (don't rely on cached variable)
+  let currentScopes = [];
+  $('.delete-option:checked').each(function() {
+    currentScopes.push($(this).val());
+  });
+
+  if (currentScopes.length === 0) {
+    alert('กรุณาเลือกข้อมูลที่ต้องการลบ');
+    return;
+  }
+
+  if ($('#confirmPassword').val() !== 'vnixdelete') {
+    alert('รหัสผ่านไม่ถูกต้อง');
+    return;
+  }
+
+  if (!$('#finalConfirm').is(':checked')) {
+    alert('กรุณายืนยันการลบ');
+    return;
+  }
+
+  // Double confirm
+  let confirmMessage = 'คุณแน่ใจหรือไม่ว่าต้องการลบข้อมูลต่อไปนี้?\n\n';
+  currentScopes.forEach(scope => {
+    confirmMessage += `- ${scopeLabels[scope]}\n`;
+  });
+  confirmMessage += '\nการกระทำนี้ไม่สามารถยกเลิกได้!';
+
+  if (!confirm(confirmMessage)) {
+    return;
+  }
+
+  // Disable button
+  const $btn = $('#btnDelete');
+  $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-2"></span>กำลังลบข้อมูล...');
+
+  // Send delete request
+  $.ajax({
+    url: '/api/admin/delete-multiple',
+    method: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify({
+      scopes: currentScopes,
+      password: $('#confirmPassword').val()
+    }),
+    success: function(data) {
+      if (data.success) {
+        $('#resultMessage')
+          .removeClass('d-none alert-danger')
+          .addClass('alert-success')
+          .html(`
+            <h5 class="alert-heading"><i data-lucide="check-circle" style="width: 20px; height: 20px;"></i> ลบข้อมูลสำเร็จ!</h5>
+            <p class="mb-0">${data.message}</p>
+            <hr>
+            <p class="mb-0 small">จำนวนที่ลบ: <strong>${data.total_deleted || 0}</strong> รายการ</p>
+          `);
+
+        // Reset form
+        $('.delete-option').prop('checked', false);
+        $('#deleteSummary').addClass('d-none');
+        $('#confirmPassword').val('').removeClass('is-valid');
+        $('#finalConfirm').prop('checked', false);
+        selectedScopes = [];
+
+        // Scroll to result
+        $('html, body').animate({
+          scrollTop: $('#resultMessage').offset().top - 100
+        }, 500);
+      } else {
+        showError(data.error || 'เกิดข้อผิดพลาด');
+        $btn.prop('disabled', false).html('<i data-lucide="trash-2"></i> ยืนยันลบข้อมูล');
+        if (window.refreshIcons) window.refreshIcons();
+      }
+    },
+    error: function(xhr) {
+      showError(xhr.responseJSON?.error || 'เกิดข้อผิดพลาดในการลบข้อมูล');
+      $btn.prop('disabled', false).html('<i data-lucide="trash-2"></i> ยืนยันลบข้อมูล');
+      if (window.refreshIcons) window.refreshIcons();
+    }
+  });
+}
+
+function showError(message) {
+  $('#resultMessage')
+    .removeClass('d-none alert-success')
+    .addClass('alert-danger')
+    .html(`
+      <h5 class="alert-heading"><i data-lucide="x-circle" style="width: 20px; height: 20px;"></i> เกิดข้อผิดพลาด</h5>
+      <p class="mb-0">${message}</p>
+    `);
+
+  $('html, body').animate({
+    scrollTop: $('#resultMessage').offset().top - 100
+  }, 500);
+}
+
+// Show preview modal
+function showPreview(type) {
+  const modal = new bootstrap.Modal(document.getElementById('previewModal'));
+  const titles = {
+    'orders': 'ข้อมูลออเดอร์',
+    'batches': 'ข้อมูล Batch',
+    'products': 'ข้อมูลสินค้าและสต็อก',
+    'audit_logs': 'ข้อมูล Audit Logs',
+    'shortage_queue': 'ข้อมูล Shortage Queue'
+  };
+
+  $('#previewModalTitle').html(`<i data-lucide="eye" style="width: 20px; height: 20px;"></i> ${titles[type]}`);
+  $('#previewModalBody').html(`
+    <div class="text-center py-5">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+      <p class="mt-3 text-muted">กำลังโหลดข้อมูล...</p>
+    </div>
+  `);
+
+  modal.show();
+
+  // Fetch preview data
+  $.ajax({
+    url: '/api/admin/preview',
+    method: 'POST',
+    contentType: 'application/json',
+    data: JSON.stringify({ type: type }),
+    success: function(data) {
+      if (data.success) {
+        $('#previewModalBody').html(data.html);
+        if (window.refreshIcons) window.refreshIcons();
+      } else {
+        $('#previewModalBody').html(`
+          <div class="alert alert-danger">
+            <i data-lucide="alert-circle"></i> ไม่สามารถโหลดข้อมูลได้: ${data.error}
+          </div>
+        `);
+      }
+    },
+    error: function() {
+      $('#previewModalBody').html(`
+        <div class="alert alert-danger">
+          <i data-lucide="alert-circle"></i> เกิดข้อผิดพลาดในการโหลดข้อมูล
+        </div>
+      `);
+    }
+  });
+}
+
+// Refresh icons
+$(document).ready(function() {
+  if (window.refreshIcons) {
+    setTimeout(window.refreshIcons, 100);
+  }
+});
+</script>
+
+<style>
+#confirmPassword {
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+
+#confirmPassword.is-valid {
+  border-color: #28a745;
+  background-color: #d4edda;
+}
+
+#confirmPassword.is-invalid {
+  border-color: #dc3545;
+  background-color: #f8d7da;
+}
+
+.card {
+  transition: all 0.3s ease;
+}
+
+#passwordSection {
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.form-check {
+  padding-left: 2rem;
+}
+
+.form-check-input {
+  width: 1.2em;
+  height: 1.2em;
+  margin-top: 0.15em;
+}
+
+.form-check-label {
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+</style>
 {% endblock %}

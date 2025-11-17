@@ -50,6 +50,7 @@ def compute_allocation(session, filters:dict):
             "sales_status": s_label or ("ยังไม่มีการเปิดใบขาย" if not sales else s_label),
             "accepted": bool(ol.accepted),
             "accepted_by": ol.accepted_by_username or "",
+            "batch_id": ol.batch_id,  # เพิ่ม batch_id เพื่อตรวจสอบสถานะ dispatched
         })
 
     # คำนวณ AllQty ต่อ SKU และจัดสรรตามลำดับความสำคัญ

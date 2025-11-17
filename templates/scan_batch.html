@@ -56,7 +56,7 @@
           <!-- Result Display -->
           <div id="result-container" class="mt-4" style="display: none;">
             <div class="alert alert-success">
-              <h5>✓ รับงานสำเร็จ!</h5>
+              <h5><i data-lucide="check-circle" style="width: 20px; height: 20px;"></i> รับงานสำเร็จ!</h5>
               <hr>
               <p class="mb-1"><strong>Batch ID:</strong> <span id="result-batch-id"></span></p>
               <p class="mb-1"><strong>Platform:</strong> <span id="result-platform"></span></p>
@@ -79,7 +79,7 @@
           <!-- Error Display -->
           <div id="error-container" class="mt-4" style="display: none;">
             <div class="alert alert-danger">
-              <h5>⚠ เกิดข้อผิดพลาด</h5>
+              <h5><i data-lucide="alert-triangle" style="width: 20px; height: 20px;"></i> เกิดข้อผิดพลาด</h5>
               <p id="error-message" class="mb-0"></p>
             </div>
             <button class="btn btn-outline-secondary" onclick="resetScanner()">
@@ -245,17 +245,31 @@ function loadQuickAssignBatches() {
       if (data.success && data.batches && data.batches.length > 0) {
         let html = '<div class="d-flex flex-wrap gap-2">';
         data.batches.forEach(batch => {
-          const progressPercent = ((batch.total_orders - batch.pending_orders) / batch.total_orders * 100).toFixed(0);
+          // ✅ ใช้ progress_percent จาก API (Quantity-based) - ตรงกับหน้า Batch List
+          const progressPercent = Math.round(batch.progress_percent || 0);
+
+          // กำหนดสีตาม Progress (เหมือนกับหน้า Batch List)
+          let badgeColor = 'warning text-dark'; // < 50%
+          let btnColor = 'primary';
+
+          if (progressPercent >= 100) {
+            badgeColor = 'success';
+            btnColor = 'success';
+          } else if (progressPercent >= 50) {
+            badgeColor = 'info';
+            btnColor = 'info';
+          }
+
           html += `
-            <button class="btn btn-outline-primary btn-sm" onclick="quickAssignBatch('${batch.batch_id}')" style="min-width: 200px;">
+            <button class="btn btn-outline-${btnColor} btn-sm" onclick="quickAssignBatch('${batch.batch_id}')" style="min-width: 200px;">
               <div class="d-flex justify-content-between align-items-center w-100">
                 <div class="text-start">
                   <div class="fw-bold">${batch.batch_id}</div>
                   <small class="text-muted">${batch.platform} • R${batch.run_no}</small>
                 </div>
                 <div class="text-end">
-                  <div class="badge bg-${progressPercent === '100' ? 'success' : 'warning text-dark'}">${progressPercent}%</div>
-                  <small class="d-block text-muted">${batch.pending_orders}/${batch.total_orders}</small>
+                  <div class="badge bg-${badgeColor}">${progressPercent}%</div>
+                  <small class="d-block text-muted">${batch.completed_qty || 0}/${batch.total_qty || 0} ชิ้น</small>
                 </div>
               </div>
             </button>
