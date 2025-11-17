@@ -103,6 +103,12 @@ class Batch(db.Model):
     run_no = db.Column(db.Integer, nullable=False)  # 1, 2, 3...
     batch_date = db.Column(db.Date, nullable=False, index=True)
 
+    # ✨ NEW: Parent-Child Batch System (Phase 3: Shortage Management)
+    parent_batch_id = db.Column(db.String(64), db.ForeignKey("batches.batch_id"), nullable=True, index=True)
+    sub_batch_number = db.Column(db.Integer, default=0)  # 0 = Parent, 1-5 = Child
+    batch_type = db.Column(db.String(20), default='original', index=True)  # 'original' or 'shortage'
+    shortage_reason = db.Column(db.Text)  # เหตุผลที่แยก Batch (สำหรับ Child Batch)
+
     # Summary counts (FR-08)
     total_orders = db.Column(db.Integer, default=0)
     spx_count = db.Column(db.Integer, default=0)
@@ -139,7 +145,14 @@ class Batch(db.Model):
 
     # Relationships
     orders = db.relationship("OrderLine", backref="batch", lazy="dynamic")
-    
+
+    # ✨ NEW: Parent-Child Relationship
+    children = db.relationship(
+        'Batch',
+        backref=db.backref('parent', remote_side=[batch_id]),
+        foreign_keys=[parent_batch_id]
+    )
+
     # Composite index for common queries
     __table_args__ = (
         db.Index('idx_batch_platform_date', 'platform', 'batch_date'),

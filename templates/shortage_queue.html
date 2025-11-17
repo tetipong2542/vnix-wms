@@ -14,7 +14,7 @@
         <div class="card-body">
           <!-- Filter Section -->
           <div class="row mb-3">
-            <div class="col-md-3">
+            <div class="col-md-2">
               <label class="form-label">สถานะ:</label>
               <select class="form-select" id="filter-status" onchange="loadShortageQueue()">
                 <option value="">ทั้งหมด</option>
@@ -24,6 +24,10 @@
                 <option value="replaced">แทน SKU แล้ว</option>
                 <option value="resolved">จัดการเรียบร้อย</option>
               </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Order ID:</label>
+              <input type="text" class="form-control" id="filter-order-id" placeholder="เช่น 1050580..." onchange="loadShortageQueue()">
             </div>
             <div class="col-md-2">
               <label class="form-label">Batch:</label>
@@ -41,7 +45,7 @@
                 </button>
               </div>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
               <label class="form-label">&nbsp;</label>
               <div class="d-grid">
                 <button class="btn btn-success" onclick="exportToExcel()">
@@ -253,6 +257,7 @@ let currentShortageData = [];
 // Load Shortage Queue
 function loadShortageQueue() {
   const status = document.getElementById('filter-status').value;
+  const orderId = document.getElementById('filter-order-id').value.trim();
   const batch = document.getElementById('filter-batch').value.trim();
   const sku = document.getElementById('filter-sku').value.trim();
 
@@ -261,6 +266,7 @@ function loadShortageQueue() {
 
   const params = new URLSearchParams();
   if (status) params.append('status', status);
+  if (orderId) params.append('order_id', orderId);
   if (batch) params.append('batch', batch);
   if (sku) params.append('sku', sku);
 
@@ -638,12 +644,14 @@ function submitBulkAction() {
 // ✅ Phase 1.3: Export to Excel
 function exportToExcel() {
   const status = document.getElementById('filter-status').value;
+  const orderId = document.getElementById('filter-order-id').value.trim();
   const batch = document.getElementById('filter-batch').value.trim();
   const sku = document.getElementById('filter-sku').value.trim();
 
   // Build query params
   const params = new URLSearchParams();
   if (status) params.append('status', status);
+  if (orderId) params.append('order_id', orderId);
   if (batch) params.append('batch', batch);
   if (sku) params.append('sku', sku);
 

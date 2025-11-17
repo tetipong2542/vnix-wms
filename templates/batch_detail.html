@@ -80,6 +80,104 @@
     </div>
   </div>
 
+  <!-- Parent-Child Batch System (Phase 3: Shortage Management) -->
+  {% if batch_family %}
+  <!-- Parent Batch Info -->
+  {% if batch.parent_batch_id %}
+  <div class="row mb-4">
+    <div class="col-12">
+      <div class="alert alert-info border-info border-2">
+        <div class="d-flex align-items-center">
+          <div class="me-3">
+            <i data-lucide="corner-down-right" style="width: 32px; height: 32px;"></i>
+          </div>
+          <div>
+            <h5 class="mb-1">
+              <i data-lucide="link" style="width: 20px; height: 20px;"></i>
+              Batch นี้เป็น Sub-Batch (Child Batch)
+            </h5>
+            <p class="mb-0">
+              เป็น Sub-Batch ของ
+              <a href="{{ url_for('batch_detail', batch_id=batch.parent_batch_id) }}" class="fw-bold">
+                {{ batch.parent_batch_id }}
+              </a>
+              <span class="badge bg-secondary ms-2">Round {{ batch.sub_batch_number }}</span>
+            </p>
+            {% if batch.shortage_reason %}
+            <div class="mt-2">
+              <small class="text-muted"><strong>เหตุผล:</strong></small>
+              <pre class="mb-0 mt-1 p-2 bg-light rounded small">{{ batch.shortage_reason }}</pre>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Child Batches (Sub-Batches) -->
+  {% if batch.batch_type == 'original' and batch_family.children %}
+  <div class="row mb-4">
+    <div class="col-12">
+      <div class="card border-warning border-2">
+        <div class="card-header bg-warning text-dark">
+          <h5 class="mb-0">
+            <i data-lucide="git-branch" style="width: 20px; height: 20px;"></i>
+            Sub-Batches (Shortage Rounds)
+          </h5>
+        </div>
+        <div class="card-body">
+          <div class="list-group">
+            {% for child in batch_family.children %}
+            <a href="{{ url_for('batch_detail', batch_id=child.batch_id) }}"
+               class="list-group-item list-group-item-action">
+              <div class="d-flex justify-content-between align-items-center">
+                <div>
+                  <h6 class="mb-1">
+                    <i data-lucide="corner-down-right" style="width: 16px; height: 16px;"></i>
+                    {{ child.batch_id }}
+                    <span class="badge bg-secondary">Round {{ child.sub_batch_number }}</span>
+                  </h6>
+                  <small class="text-muted">{{ child.total_orders }} Orders • สร้างเมื่อ {{ child.created_at }}</small>
+                  {% if child.shortage_reason %}
+                  <div class="mt-1">
+                    <small class="text-muted d-block" style="white-space: pre-wrap;">{{ child.shortage_reason }}</small>
+                  </div>
+                  {% endif %}
+                </div>
+                <div class="text-end">
+                  <div class="mb-2">
+                    <span class="badge bg-{% if child.progress_percent == 100 %}success{% elif child.progress_percent >= 50 %}info{% else %}warning{% endif %} fs-6">
+                      {{ child.progress_percent|round|int }}%
+                    </span>
+                  </div>
+                  <small class="text-muted d-block">{{ child.completed_qty }}/{{ child.total_qty }} ชิ้น</small>
+                  {% if child.handover_code %}
+                  <span class="badge bg-success mt-1">{{ child.handover_code }}</span>
+                  {% endif %}
+                </div>
+              </div>
+            </a>
+            {% endfor %}
+          </div>
+
+          <div class="alert {% if batch_family.can_split_more %}alert-light{% else %}alert-warning{% endif %} mt-3 mb-0">
+            {% if batch_family.can_split_more %}
+            <i data-lucide="info" style="width: 16px; height: 16px;"></i>
+            สามารถแยก Sub-Batch ได้อีก {{ 5 - batch_family.total_children }} Batch
+            {% else %}
+            <i data-lucide="alert-triangle" style="width: 16px; height: 16px;"></i>
+            ถึงขอบเขตแล้ว: แยก Sub-Batch ได้สูงสุด 5 Batch
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  {% endif %}
+
   <!-- Summary Cards -->
   <div class="row mb-4">
     <!-- Total Orders -->
@@ -257,11 +355,11 @@
                   <th style="width: 5%;">#</th>
                   <th style="width: 12%;">SKU</th>
                   <th style="width: 20%;">สินค้า</th>
-                  <th class="text-center" style="width: 6%;">สต็อก</th>
-                  <th class="text-center" style="width: 6%;">ต้องการ</th>
-                  <th class="text-center" style="width: 6%;">หยิบแล้ว</th>
-                  <th class="text-center" style="width: 6%;">คงเหลือ</th>
-                  <th class="text-center" style="width: 6%;">ขาด</th>
+                  <th class="text-center" style="width: 6%;" title="สต็อกปัจจุบันในระบบ">สต็อก</th>
+                  <th class="text-center" style="width: 6%;" title="จำนวนที่ต้องการสำหรับ Batch นี้">ต้องการ</th>
+                  <th class="text-center" style="width: 6%;" title="จำนวนที่หยิบไปแล้ว">หยิบแล้ว</th>
+                  <th class="text-center" style="width: 6%;" title="ต้องหยิบอีกกี่ชิ้นถึงจะครบ">ต้องการอีก</th>
+                  <th class="text-center" style="width: 6%;" title="จำนวนที่ Shortage (ขาดแต่จัดการแล้ว)">ขาด</th>
                   <th class="text-center" style="width: 12%;">สถานะ</th>
                   <th class="text-center" style="width: 18%;">Actions</th>
                 </tr>
@@ -353,8 +451,8 @@
   </div>
 
   <!-- Handover Code Section -->
-  {# ✅ ใช้ batch_progress จาก calculate_batch_progress() แทนการคำนวณเอง #}
-  {% if batch_progress.progress_percent >= 100 %}
+  {# ✨ NEW: ใช้ batch_readiness (SKU-based) แทน batch_progress (Quantity-based) #}
+  {% if batch_readiness.ready %}
   <div class="row mb-4">
     <div class="col-md-12">
       <div class="card border-success border-3 shadow-lg">
@@ -369,7 +467,10 @@
                 <i data-lucide="package-check" style="width: 64px; height: 64px;" class="text-success"></i>
               </div>
               <h4 class="mb-3">Batch นี้เสร็จสมบูรณ์แล้ว <i data-lucide="check-circle" style="width: 24px; height: 24px;"></i></h4>
-              <p class="text-muted mb-4">สร้างรหัสส่งมอบเพื่อใช้ยืนยันการส่งพัสดุให้ Courier</p>
+              <p class="text-muted mb-4">
+                {{ batch_readiness.reason }}<br>
+                <span class="badge bg-success">{{ batch_readiness.completed_skus }}/{{ batch_readiness.total_skus }} SKU เสร็จสิ้น</span>
+              </p>
               <button class="btn btn-success btn-lg" onclick="generateHandoverCode()" id="btnGenerateCode">
                 <i data-lucide="key"></i> สร้างรหัสส่งมอบ (Handover Code)
               </button>
@@ -441,6 +542,81 @@
                 </div>
               </div>
             </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <!-- Progress < 100% หรือ SKU ยังไม่เสร็จ → แสดงปุ่มแยก Batch -->
+  <div class="row mb-4">
+    <div class="col-md-12">
+      <div class="card border-warning border-3">
+        <div class="card-header bg-warning text-dark">
+          <h5 class="mb-0">
+            <i data-lucide="alert-triangle"></i>
+            Batch ยังไม่เสร็จ - ยังไม่สามารถสร้าง Handover Code
+          </h5>
+        </div>
+        <div class="card-body">
+          <div class="alert alert-warning mb-3">
+            <h6 class="alert-heading">
+              <i data-lucide="info"></i>
+              {{ batch_readiness.reason }}
+            </h6>
+            <div class="row mt-3">
+              <div class="col-md-6">
+                <p class="mb-1">
+                  <strong>SKU Progress:</strong>
+                  <span class="badge bg-warning text-dark">{{ batch_readiness.completed_skus }}/{{ batch_readiness.total_skus }} SKU</span>
+                </p>
+              </div>
+              <div class="col-md-6">
+                <p class="mb-1">
+                  <strong>Quantity Progress:</strong>
+                  <span class="badge bg-info">{{ batch_progress.completed_qty }}/{{ batch_progress.total_qty }} ชิ้น ({{ batch_progress.progress_percent|round|int }}%)</span>
+                </p>
+              </div>
+            </div>
+            {% if batch_readiness.pending_skus %}
+            <div class="mt-3">
+              <details>
+                <summary class="cursor-pointer"><strong>SKU ที่ยังไม่เสร็จ ({{ batch_readiness.pending_skus|length }} รายการ) <span style="font-weight: 700; color:red;">โปรดแจ้งให้คลังสแกน SKU หากมีการอัพเดตสต็อกแล้ว</span> :</strong></summary>
+                <ul class="small mt-2 mb-0">
+                  {% for sku in batch_readiness.pending_skus %}
+                  <li>
+                    <code>{{ sku.sku }}</code>:
+                    {{ sku.completed }}/{{ sku.need }} ชิ้น
+                    <span class="text-danger">(เหลืออีก {{ sku.remaining }} ชิ้น)</span>
+                  </li>
+                  {% endfor %}
+                </ul>
+              </details>
+            </div>
+            {% endif %}
+          </div>
+
+          <!-- ปุ่มแยก Batch (เฉพาะ Parent Batch และมี Shortage) -->
+          {% if not batch.parent_batch_id %}
+          <div class="text-center py-3">
+            <h5 class="mb-3">
+              <i data-lucide="split"></i>
+              มี Shortage ใช่ไหม? ส่งของที่มีพร้อมก่อน!
+            </h5>
+            <p class="text-muted mb-4">
+              หากมีสินค้าบางรายการที่ขาด (Shortage) คุณสามารถแยก Batch นี้เป็น 2 ส่วน:<br>
+              <strong>1)</strong> ส่วนที่หยิบครบแล้ว → ส่งได้ทันที<br>
+              <strong>2)</strong> ส่วนที่ยังขาด → รอสต็อกเข้าแล้วค่อยส่งทีหลัง
+            </p>
+            <button class="btn btn-warning btn-lg" onclick="splitBatchConfirm()" id="btnSplitBatch">
+              <i data-lucide="split"></i>
+              แยก Batch (ส่งของที่มีก่อน)
+            </button>
+            <div class="mt-3 text-muted small">
+              <i data-lucide="info"></i>
+              หากไม่มี Shortage ระบบจะแจ้งเตือนให้คุณทราบ
+            </div>
+          </div>
           {% endif %}
         </div>
       </div>
@@ -538,6 +714,54 @@ function generateHandoverCode() {
     });
   }
 }
+
+// ============================================================
+// Parent-Child Batch System: Split Batch Function
+// ============================================================
+
+function splitBatchConfirm() {
+  const batchId = '{{ batch.batch_id }}';
+
+  if (!confirm('คุณต้องการแยก Batch นี้หรือไม่?\n\n' +
+               'ระบบจะแยกเป็น 2 Batch:\n' +
+               '✅ Batch แม่ (เดิม) → Orders ที่หยิบครบแล้ว (ส่งได้ทันที)\n' +
+               '⏳ Batch ลูก (ใหม่) → Orders ที่มี Shortage (รอสต็อกเข้า)\n\n' +
+               'ดำเนินการต่อไหม?')) {
+    return;
+  }
+
+  const $btn = $('#btnSplitBatch');
+  $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-2"></span>กำลังแยก Batch...');
+
+  $.ajax({
+    url: `/api/batch/${batchId}/auto-split`,
+    method: 'POST',
+    contentType: 'application/json',
+    success: function(data) {
+      if (data.success) {
+        alert(`✅ แยก Batch สำเร็จ!\n\n` +
+              `📦 Batch แม่: ${data.parent_batch.batch_id}\n` +
+              `   └─ ${data.parent_batch.total_orders} Orders (${data.parent_batch.progress}%)\n\n` +
+              `📦 Batch ลูก: ${data.child_batch.batch_id}\n` +
+              `   └─ ${data.child_batch.total_orders} Orders (Shortage)\n\n` +
+              `ตอนนี้คุณสามารถส่งของที่มีพร้อมได้ทันที!`);
+        location.reload();
+      } else {
+        alert('❌ เกิดข้อผิดพลาด: ' + (data.error || 'ไม่สามารถแยก Batch ได้'));
+        $btn.prop('disabled', false).html('<i data-lucide="split"></i> แยก Batch (ส่งของที่มีก่อน)');
+        if (window.refreshIcons) window.refreshIcons();
+      }
+    },
+    error: function(xhr) {
+      const msg = xhr.responseJSON?.error || 'เกิดข้อผิดพลาดในการแยก Batch';
+      alert('❌ เกิดข้อผิดพลาด: ' + msg);
+      $btn.prop('disabled', false).html('<i data-lucide="split"></i> แยก Batch (ส่งของที่มีก่อน)');
+      if (window.refreshIcons) window.refreshIcons();
+    }
+  });
+}
+
+// ============================================================
 
 // View Shortage Reason
 function viewShortageReason(sku, batchId) {

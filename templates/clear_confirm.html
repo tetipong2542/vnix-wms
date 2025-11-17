@@ -291,7 +291,127 @@
   </div>
 </div>
 
+<!-- ✅ NEW: Stock List Modal -->
+<div class="modal fade" id="stockListModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title">
+          <i data-lucide="box" style="width: 20px; height: 20px;"></i>
+          ข้อมูลสินค้าและสต็อก
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <!-- Summary Cards -->
+        <div class="row mb-4">
+          <div class="col-md-3">
+            <div class="card border-primary">
+              <div class="card-body text-center">
+                <h6 class="text-muted mb-1">สินค้าทั้งหมด</h6>
+                <h2 class="mb-0 text-primary" id="stockSummaryTotal">-</h2>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="card border-warning">
+              <div class="card-body text-center">
+                <h6 class="text-muted mb-1">ใกล้หมด (≤3)</h6>
+                <h2 class="mb-0 text-warning" id="stockSummaryLow">-</h2>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="card border-danger">
+              <div class="card-body text-center">
+                <h6 class="text-muted mb-1">หมดสต็อก</h6>
+                <h2 class="mb-0 text-danger" id="stockSummaryOut">-</h2>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <div class="card border-success">
+              <div class="card-body text-center">
+                <h6 class="text-muted mb-1">มีสต็อก</h6>
+                <h2 class="mb-0 text-success" id="stockSummaryInStock">-</h2>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Filter and Search -->
+        <div class="row mb-3">
+          <div class="col-md-4">
+            <label class="form-label">Filter:</label>
+            <select class="form-select" id="stockFilterSelect">
+              <option value="all">ทุกสินค้า</option>
+              <option value="low_stock">สต็อกต่ำ (≤3)</option>
+              <option value="out_of_stock">สต็อกหมด (=0)</option>
+            </select>
+          </div>
+          <div class="col-md-5">
+            <label class="form-label">Search:</label>
+            <input type="text" class="form-control" id="stockSearchInput" placeholder="ค้นหา SKU, Brand, Model...">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">&nbsp;</label>
+            <div class="d-grid gap-2">
+              <button class="btn btn-primary" onclick="applyStockFilter()">
+                <i data-lucide="search" style="width: 16px; height: 16px;"></i> ค้นหา
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Alert for Low Stock -->
+        <div class="alert alert-warning" id="lowStockAlert" style="display: none;">
+          <i data-lucide="alert-triangle" style="width: 20px; height: 20px;"></i>
+          <strong>แจ้งเตือน!</strong> มีสินค้าใกล้หมดสต็อก <span id="lowStockCount">0</span> รายการ
+        </div>
+
+        <!-- Table -->
+        <div class="table-responsive">
+          <table class="table table-hover table-striped">
+            <thead class="table-warning">
+              <tr>
+                <th style="width: 50px;">#</th>
+                <th>SKU</th>
+                <th>ชื่อสินค้า</th>
+                <th class="text-center" style="width: 120px;">Stock คงเหลือ</th>
+                <th class="text-center" style="width: 150px;">ตำแหน่ง</th>
+                <th class="text-center" style="width: 100px;">สถานะ</th>
+              </tr>
+            </thead>
+            <tbody id="stockListTableBody">
+              <tr>
+                <td colspan="6" class="text-center py-5">
+                  <div class="spinner-border text-warning"></div>
+                  <p class="mt-2">กำลังโหลด...</p>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="mt-3" id="stockPaginationContainer"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-success" onclick="exportStockToExcel()">
+          <i data-lucide="file-spreadsheet" style="width: 16px; height: 16px;"></i> Export to Excel
+        </button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
+// ✅ Stock List Modal Variables (declare first to avoid hoisting issues)
+let currentStockPage = 1;
+let currentStockFilter = 'all';
+let currentStockSearch = '';
+
 // Scope labels for display
 const scopeLabels = {
   'orders_today': 'ลบออเดอร์ของวันนี้',
@@ -450,11 +570,19 @@ function showError(message) {
 
 // Show preview modal
 function showPreview(type) {
+  console.log('showPreview called with type:', type);
+
+  // ✅ NEW: ถ้าเป็น products ให้เปิด Stock List Modal แทน
+  if (type === 'products') {
+    console.log('Redirecting to stock list modal');
+    showStockListModal();
+    return;
+  }
+
   const modal = new bootstrap.Modal(document.getElementById('previewModal'));
   const titles = {
     'orders': 'ข้อมูลออเดอร์',
     'batches': 'ข้อมูล Batch',
-    'products': 'ข้อมูลสินค้าและสต็อก',
     'audit_logs': 'ข้อมูล Audit Logs',
     'shortage_queue': 'ข้อมูล Shortage Queue'
   };
@@ -497,6 +625,239 @@ function showPreview(type) {
       `);
     }
   });
+}
+
+// ✅ NEW: Stock List Modal Functions
+function showStockListModal() {
+  console.log('Opening stock list modal...');
+  const modalEl = document.getElementById('stockListModal');
+  console.log('Modal element:', modalEl);
+
+  if (!modalEl) {
+    console.error('Stock list modal not found!');
+    alert('ไม่พบ Stock List Modal กรุณารีเฟรชหน้าแล้วลองใหม่');
+    return;
+  }
+
+  const modal = new bootstrap.Modal(modalEl);
+  modal.show();
+
+  // Reset to first page
+  currentStockPage = 1;
+  currentStockFilter = 'all';
+  currentStockSearch = '';
+
+  console.log('Loading stock list...');
+  loadStockList();
+}
+
+function loadStockList() {
+  console.log('loadStockList called with:', {
+    page: currentStockPage,
+    filter: currentStockFilter,
+    search: currentStockSearch
+  });
+
+  // Show loading
+  $('#stockListTableBody').html(`
+    <tr>
+      <td colspan="6" class="text-center py-5">
+        <div class="spinner-border text-warning"></div>
+        <p class="mt-2">กำลังโหลด...</p>
+      </td>
+    </tr>
+  `);
+
+  // Build URL
+  const params = new URLSearchParams({
+    page: currentStockPage,
+    per_page: 100,
+    filter: currentStockFilter,
+    search: currentStockSearch
+  });
+
+  const url = `/api/admin/stock-list?${params.toString()}`;
+  console.log('Fetching from:', url);
+
+  // Fetch data
+  $.ajax({
+    url: `/api/admin/stock-list?${params.toString()}`,
+    method: 'GET',
+    xhrFields: {
+      withCredentials: true
+    },
+    success: function(data) {
+      console.log('Stock list response:', data);
+      if (data.success) {
+        renderStockList(data);
+      } else {
+        $('#stockListTableBody').html(`
+          <tr>
+            <td colspan="6" class="text-center text-danger py-4">
+              เกิดข้อผิดพลาด: ${data.error}
+            </td>
+          </tr>
+        `);
+      }
+    },
+    error: function(xhr, status, error) {
+      console.error('Stock list error:', xhr, status, error);
+      const errorMsg = xhr.responseJSON?.error || xhr.statusText || 'เกิดข้อผิดพลาดในการโหลดข้อมูล';
+      $('#stockListTableBody').html(`
+        <tr>
+          <td colspan="6" class="text-center text-danger py-4">
+            <i data-lucide="alert-circle" style="width: 20px; height: 20px;"></i><br>
+            ${errorMsg}<br>
+            <small class="text-muted">Status: ${xhr.status} - ${status}</small>
+          </td>
+        </tr>
+      `);
+      if (window.refreshIcons) window.refreshIcons();
+    }
+  });
+}
+
+function renderStockList(data) {
+  const { stocks, pagination, summary } = data;
+
+  // Update summary cards
+  $('#stockSummaryTotal').text(summary.total_products);
+  $('#stockSummaryLow').text(summary.low_stock);
+  $('#stockSummaryOut').text(summary.out_of_stock);
+  $('#stockSummaryInStock').text(summary.in_stock);
+
+  // Show/hide low stock alert
+  if (summary.low_stock > 0) {
+    $('#lowStockCount').text(summary.low_stock);
+    $('#lowStockAlert').show();
+  } else {
+    $('#lowStockAlert').hide();
+  }
+
+  // Render table
+  let html = '';
+  if (stocks.length === 0) {
+    html = `
+      <tr>
+        <td colspan="6" class="text-center text-muted py-4">
+          ไม่พบข้อมูล
+        </td>
+      </tr>
+    `;
+  } else {
+    const startNum = (pagination.page - 1) * pagination.per_page;
+    stocks.forEach((stock, index) => {
+      const rowClass = stock.is_out_of_stock ? 'table-danger' : (stock.is_low_stock ? 'table-warning' : '');
+      const statusBadge = stock.is_out_of_stock
+        ? '<span class="badge bg-danger">หมดสต็อก</span>'
+        : stock.is_low_stock
+        ? '<span class="badge bg-warning text-dark">ใกล้หมด</span>'
+        : '<span class="badge bg-success">ปกติ</span>';
+
+      html += `
+        <tr class="${rowClass}">
+          <td class="text-center"><small>${startNum + index + 1}</small></td>
+          <td><code>${stock.sku}</code></td>
+          <td><small>${stock.product_name}</small></td>
+          <td class="text-center"><strong>${stock.stock}</strong></td>
+          <td class="text-center"><small>${stock.location}</small></td>
+          <td class="text-center">${statusBadge}</td>
+        </tr>
+      `;
+    });
+  }
+
+  $('#stockListTableBody').html(html);
+
+  // Render pagination
+  renderStockPagination(pagination);
+}
+
+function renderStockPagination(pagination) {
+  const { page, total_pages } = pagination;
+
+  if (total_pages <= 1) {
+    $('#stockPaginationContainer').html('');
+    return;
+  }
+
+  let html = '<nav><ul class="pagination pagination-sm justify-content-center mb-0">';
+
+  // Previous button
+  html += `
+    <li class="page-item ${page === 1 ? 'disabled' : ''}">
+      <a class="page-link" href="#" onclick="changeStockPage(${page - 1}); return false;">
+        <i data-lucide="chevron-left" style="width: 14px; height: 14px;"></i>
+      </a>
+    </li>
+  `;
+
+  // Page numbers (show max 10 pages)
+  let startPage = Math.max(1, page - 4);
+  let endPage = Math.min(total_pages, startPage + 9);
+
+  if (endPage - startPage < 9) {
+    startPage = Math.max(1, endPage - 9);
+  }
+
+  if (startPage > 1) {
+    html += `<li class="page-item"><a class="page-link" href="#" onclick="changeStockPage(1); return false;">1</a></li>`;
+    if (startPage > 2) {
+      html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+    }
+  }
+
+  for (let i = startPage; i <= endPage; i++) {
+    html += `
+      <li class="page-item ${i === page ? 'active' : ''}">
+        <a class="page-link" href="#" onclick="changeStockPage(${i}); return false;">${i}</a>
+      </li>
+    `;
+  }
+
+  if (endPage < total_pages) {
+    if (endPage < total_pages - 1) {
+      html += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+    }
+    html += `<li class="page-item"><a class="page-link" href="#" onclick="changeStockPage(${total_pages}); return false;">${total_pages}</a></li>`;
+  }
+
+  // Next button
+  html += `
+    <li class="page-item ${page === total_pages ? 'disabled' : ''}">
+      <a class="page-link" href="#" onclick="changeStockPage(${page + 1}); return false;">
+        <i data-lucide="chevron-right" style="width: 14px; height: 14px;"></i>
+      </a>
+    </li>
+  `;
+
+  html += '</ul></nav>';
+
+  $('#stockPaginationContainer').html(html);
+
+  // Refresh icons
+  if (window.refreshIcons) window.refreshIcons();
+}
+
+function changeStockPage(page) {
+  currentStockPage = page;
+  loadStockList();
+}
+
+function applyStockFilter() {
+  currentStockFilter = $('#stockFilterSelect').val();
+  currentStockSearch = $('#stockSearchInput').val().trim();
+  currentStockPage = 1; // Reset to first page
+  loadStockList();
+}
+
+function exportStockToExcel() {
+  const params = new URLSearchParams({
+    filter: currentStockFilter,
+    search: currentStockSearch
+  });
+
+  window.location.href = `/api/admin/export-stock-excel?${params.toString()}`;
 }
 
 // Refresh icons

@@ -122,7 +122,18 @@
         <tbody>
           {% for batch in batches %}
           <tr>
-            <td><strong>{{ batch.batch_id }}</strong></td>
+            <td>
+              {% if batch.parent_batch_id %}
+                <!-- Child Batch → เยื้อง + แสดง Icon -->
+                <span style="margin-left: 20px; color: var(--bs-secondary);">
+                  └─ <i data-lucide="corner-down-right" style="width: 14px; height: 14px;"></i>
+                </span>
+              {% endif %}
+              <strong>{{ batch.batch_id }}</strong>
+              {% if batch.sub_batch_number > 0 %}
+                <span class="badge bg-secondary ms-1">R{{ batch.sub_batch_number }}</span>
+              {% endif %}
+            </td>
             <td>
               {% if batch.platform == 'Shopee' %}
                 <span class="badge bg-danger fs-6">Shopee</span>
@@ -171,7 +182,7 @@
                     </div>
                   </div>
                 </div>
-                {% if progress.percent >= 100 and not batch.handover_code %}
+                {% if batch_readiness.get(batch.batch_id) and not batch.handover_code %}
                 <button class="btn btn-success btn-sm mt-1" onclick="generateHandoverCodeFromList('{{ batch.batch_id }}')" id="btn-handover-{{ batch.batch_id }}">
                   <i data-lucide="key" style="width: 12px; height: 12px;"></i> สร้างรหัสส่งมอบ
                 </button>

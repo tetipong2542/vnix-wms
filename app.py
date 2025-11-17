@@ -387,6 +387,83 @@ def create_app():
             "completed_orders": completed_orders
         }
 
+    def is_batch_ready_for_handover(batch_id: str) -> dict:
+        """
+        ตรวจสอบว่า Batch พร้อมสร้าง Handover Code หรือไม่
+        โดยดูว่าทุก SKU เสร็จสิ้นแล้วหรือยัง (SKU-based check)
+
+        Returns:
+            dict: {
+                "ready": bool,
+                "reason": str,
+                "total_skus": int,
+                "completed_skus": int,
+                "pending_skus": list
+            }
+        """
+        orders = OrderLine.query.filter_by(batch_id=batch_id).all()
+
+        if not orders:
+            return {
+                "ready": False,
+                "reason": "Batch ไม่มี Orders",
+                "total_skus": 0,
+                "completed_skus": 0,
+                "pending_skus": []
+            }
+
+        # คำนวณ SKU Progress (เหมือนกับที่แสดงในหน้า Batch Detail)
+        from collections import defaultdict
+        sku_status = {}
+
+        for order in orders:
+            if order.sku not in sku_status:
+                sku_status[order.sku] = {
+                    "sku": order.sku,
+                    "total_need": 0,
+                    "total_picked": 0,
+                    "total_shortage": 0
+                }
+
+            sku_status[order.sku]["total_need"] += order.qty
+            sku_status[order.sku]["total_picked"] += (order.picked_qty or 0)
+            sku_status[order.sku]["total_shortage"] += (order.shortage_qty or 0)
+
+        # ตรวจสอบสถานะแต่ละ SKU
+        total_skus = len(sku_status)
+        completed_skus = 0
+        pending_skus = []
+
+        for sku, data in sku_status.items():
+            completed = data["total_picked"] + data["total_shortage"]
+
+            # SKU เสร็จสิ้น = picked + shortage >= total_need
+            if completed >= data["total_need"]:
+                completed_skus += 1
+            else:
+                pending_skus.append({
+                    "sku": sku,
+                    "need": data["total_need"],
+                    "completed": completed,
+                    "remaining": data["total_need"] - completed
+                })
+
+        # ทุก SKU ต้องเสร็จสิ้น
+        is_ready = (completed_skus == total_skus)
+
+        if is_ready:
+            reason = "ทุก SKU เสร็จสิ้นแล้ว พร้อมสร้าง Handover Code"
+        else:
+            reason = f"ยังมี {len(pending_skus)} SKU ที่ยังไม่เสร็จ"
+
+        return {
+            "ready": is_ready,
+            "reason": reason,
+            "total_skus": total_skus,
+            "completed_skus": completed_skus,
+            "pending_skus": pending_skus
+        }
+
     def get_next_run_number(platform: str, batch_date: date = None) -> int:
         """
         Get next available run number for a platform and date.
@@ -1153,8 +1230,11 @@ def create_app():
         # คำนวณ Progress ของแต่ละ Batch (สำหรับแสดงใน UI)
         # ✅ Phase 2.1: ใช้ Quantity-based calculation แทน Order-based
         batch_progress = {}
+        batch_readiness = {}  # ✨ NEW: SKU-based readiness check
+
         for batch in batches:
             progress_data = calculate_batch_progress(batch.batch_id)
+            readiness_data = is_batch_ready_for_handover(batch.batch_id)
 
             # สร้าง structure ให้เข้ากับ UI เดิม
             batch_progress[batch.batch_id] = {
@@ -1169,11 +1249,15 @@ def create_app():
                 "completed_qty": progress_data["completed_qty"]
             }
 
+            # ✨ NEW: เพิ่ม SKU-based readiness
+            batch_readiness[batch.batch_id] = readiness_data["ready"]
+
         return render_template(
             "batch_list.html",
             batches=batches,
             pending_counts=pending_counts,
             batch_progress=batch_progress,
+            batch_readiness=batch_readiness,  # ✨ NEW: ส่ง readiness status
             platform_filter=platform_filter,
             handover_status=handover_status or "all",
             date_from=date_from,
@@ -1279,8 +1363,10 @@ def create_app():
         # คำนวณสถานะและเรียงลำดับ
         sku_list = []
         for sku, data in sku_progress.items():
-            # ✅ แก้ไข: คงเหลือ = สต็อกคงเหลือหลังจากหยิบ (Stock - Picked)
-            remaining = data["stock_qty"] - data["total_picked"]
+            # ✅ แก้ไข: "คงเหลือ" = ต้องการอีกกี่ชิ้น (Need - Picked - Shortage)
+            # คอลัมน์นี้บอกว่ายังต้องหยิบอีกกี่ชิ้นถึงจะครบ
+            completed = data["total_picked"] + data["total_shortage"]  # หยิบแล้ว + shortage ที่จัดการแล้ว
+            remaining = data["total_need"] - completed
             data["remaining"] = max(0, remaining)  # ป้องกันค่าติดลบ
 
             # กำหนดสถานะ
@@ -1334,6 +1420,52 @@ def create_app():
         # ✅ คำนวณ Overall Progress ด้วย calculate_batch_progress() เพื่อให้ตรงกับหน้า Batch List
         batch_progress_data = calculate_batch_progress(batch_id)
 
+        # ✨ NEW: ดึงข้อมูล Batch Family (Parent + Children) สำหรับ Parent-Child Batch System
+        batch_family_data = None
+        try:
+            # หา Parent Batch
+            if batch.parent_batch_id:
+                parent_batch = db.session.get(Batch, batch.parent_batch_id)
+            else:
+                parent_batch = batch
+
+            # ดึง Children ทั้งหมด
+            children = Batch.query.filter_by(
+                parent_batch_id=parent_batch.batch_id
+            ).order_by(Batch.sub_batch_number).all()
+
+            # คำนวณ Progress แต่ละ Batch
+            def get_batch_info(b):
+                progress = calculate_batch_progress(b.batch_id)
+                return {
+                    "batch_id": b.batch_id,
+                    "sub_batch_number": b.sub_batch_number,
+                    "batch_type": b.batch_type,
+                    "total_orders": b.total_orders,
+                    "progress_percent": progress["progress_percent"],
+                    "total_qty": progress["total_qty"],
+                    "completed_qty": progress["completed_qty"],
+                    "picked_qty": progress["picked_qty"],
+                    "handover_code": b.handover_code,
+                    "handover_confirmed": b.handover_confirmed,
+                    "shortage_reason": b.shortage_reason,
+                    "created_at": to_thai_be(b.created_at)
+                }
+
+            batch_family_data = {
+                "parent": get_batch_info(parent_batch),
+                "children": [get_batch_info(child) for child in children],
+                "total_children": len(children),
+                "can_split_more": len(children) < 5
+            }
+        except Exception as e:
+            print(f"Error loading batch family: {e}")
+            # ถ้าเกิด error ให้ใช้ None (UI จะไม่แสดง Parent-Child section)
+            batch_family_data = None
+
+        # ✨ NEW: ตรวจสอบว่า Batch พร้อมสร้าง Handover Code หรือไม่ (SKU-based)
+        batch_readiness = is_batch_ready_for_handover(batch_id)
+
         return render_template(
             "batch_detail.html",
             batch=batch,
@@ -1342,7 +1474,9 @@ def create_app():
             shop_summary=shop_summary,
             sku_progress=sku_list,
             shortage_details=shortage_details,  # ✅ ส่งข้อมูล shortage ไปด้วย
-            batch_progress=batch_progress_data  # ✅ ส่ง Overall Progress (Quantity-based)
+            batch_progress=batch_progress_data,  # ✅ ส่ง Overall Progress (Quantity-based)
+            batch_family=batch_family_data,  # ✨ NEW: ส่งข้อมูล Parent-Child Batch Family
+            batch_readiness=batch_readiness  # ✨ NEW: ส่งข้อมูลว่าพร้อมสร้าง Handover Code หรือไม่
         )
 
     @app.route("/batch/<batch_id>/summary")
@@ -2643,6 +2777,215 @@ def create_app():
             "error": "เกิดข้อผิดพลาดในการสร้างรหัส"
         }), 500
 
+    # ============================================================
+    # Parent-Child Batch System (Phase 3: Shortage Management)
+    # ============================================================
+
+    @app.route("/api/batch/<batch_id>/auto-split", methods=["POST"])
+    @login_required
+    def api_auto_split_batch(batch_id):
+        """
+        แยก Batch อัตโนมัติเมื่อมี Shortage
+        - Orders ที่หยิบครบแล้วอยู่ใน Parent Batch (Progress = 100%)
+        - Orders ที่มี Shortage ย้ายไป Child Batch (Progress < 100%)
+
+        Business Rules:
+        - ไม่สามารถแยก Child Batch ได้ (แยกได้เฉพาะ Parent)
+        - จำกัดสูงสุด 5 Child Batches ต่อ 1 Parent
+        - ต้องมี Orders อย่างน้อย 2 กลุ่ม (complete + shortage)
+        """
+        batch = db.session.get(Batch, batch_id)
+
+        if not batch:
+            return jsonify({"success": False, "error": "ไม่พบ Batch"}), 404
+
+        # ตรวจสอบว่าเป็น Parent Batch (ไม่ใช่ Child)
+        if batch.parent_batch_id is not None:
+            return jsonify({
+                "success": False,
+                "error": "ไม่สามารถแยก Child Batch ได้ กรุณาแยกจาก Parent Batch"
+            }), 400
+
+        # ตรวจสอบจำนวน Child Batch ที่มีอยู่แล้ว
+        existing_children = Batch.query.filter_by(parent_batch_id=batch_id).count()
+        if existing_children >= 5:
+            return jsonify({
+                "success": False,
+                "error": "ถึงขอบเขตแล้ว: Batch นี้มี Child Batch ครบ 5 Batch แล้ว"
+            }), 400
+
+        # ดึง Orders ทั้งหมดใน Batch
+        orders = OrderLine.query.filter_by(batch_id=batch_id).all()
+
+        if not orders:
+            return jsonify({"success": False, "error": "Batch ไม่มี Orders"}), 404
+
+        # แยก Orders เป็น 2 กลุ่ม
+        complete_orders = []  # Orders ที่หยิบครบ (ไม่มี Shortage)
+        shortage_orders = []  # Orders ที่มี Shortage
+
+        shortage_details = []  # รวบรวมรายละเอียด Shortage
+
+        for order in orders:
+            if order.shortage_qty > 0:
+                shortage_orders.append(order)
+                shortage_details.append(
+                    f"Order {order.order_id}: SKU {order.sku} ขาด {order.shortage_qty} ชิ้น"
+                )
+            else:
+                complete_orders.append(order)
+
+        # ถ้าไม่มี Shortage → ไม่ต้องแยก
+        if not shortage_orders:
+            return jsonify({
+                "success": False,
+                "error": "Batch นี้ไม่มี Shortage ไม่จำเป็นต้องแยก"
+            }), 400
+
+        # ถ้าทุก Order มี Shortage → ไม่ต้องแยก (รอสต็อกเข้าทั้งหมด)
+        if not complete_orders:
+            return jsonify({
+                "success": False,
+                "error": "Batch นี้ทุก Order มี Shortage กรุณารอสต็อกเข้าแทน"
+            }), 400
+
+        # สร้าง Child Batch
+        next_sub_number = existing_children + 1
+        child_batch_id = f"{batch_id}.{next_sub_number}"
+
+        # รวบรวม Shortage Info
+        shortage_reason = "\n".join(shortage_details)
+
+        # นับ Orders ตาม Order ID (เพราะ 1 Order อาจมีหลาย SKU)
+        complete_order_ids = set(o.order_id for o in complete_orders)
+        shortage_order_ids = set(o.order_id for o in shortage_orders)
+
+        # สร้าง Child Batch
+        child_batch = Batch(
+            batch_id=child_batch_id,
+            platform=batch.platform,
+            batch_date=batch.batch_date,
+            run_no=batch.run_no,
+            parent_batch_id=batch_id,
+            sub_batch_number=next_sub_number,
+            batch_type='shortage',
+            shortage_reason=shortage_reason,
+            total_orders=len(shortage_order_ids),
+            locked=True,
+            created_by_user_id=current_user().id,
+            created_by_username=current_user().username,
+            created_at=now_thai()
+        )
+
+        db.session.add(child_batch)
+
+        # ย้าย Orders ที่มี Shortage ไป Child Batch
+        for order in shortage_orders:
+            order.batch_id = child_batch_id
+
+        # ✨ NEW: อัปเดต ShortageQueue ให้ชี้ไปที่ Child Batch
+        # เพื่อให้ปุ่ม "ดูเหตุผล" หา Shortage Queue ได้ถูกต้อง
+        shortage_order_line_ids = [order.id for order in shortage_orders]
+        if shortage_order_line_ids:
+            ShortageQueue.query.filter(
+                ShortageQueue.order_line_id.in_(shortage_order_line_ids)
+            ).update(
+                {ShortageQueue.original_batch_id: child_batch_id},
+                synchronize_session=False
+            )
+
+        # อัปเดต Parent Batch
+        batch.total_orders = len(complete_order_ids)
+
+        db.session.commit()
+
+        # Log Audit
+        log = AuditLog(
+            action="batch_split",
+            user_id=current_user().id,
+            username=current_user().username,
+            details=json.dumps({
+                "parent_batch": batch_id,
+                "child_batch": child_batch_id,
+                "shortage_orders": len(shortage_order_ids),
+                "complete_orders": len(complete_order_ids),
+                "reason": shortage_reason
+            }),
+            batch_id=batch_id
+        )
+        db.session.add(log)
+        db.session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": f"แยก Batch สำเร็จ",
+            "parent_batch": {
+                "batch_id": batch_id,
+                "total_orders": len(complete_order_ids),
+                "progress": 100  # Parent Batch มีแต่ Orders ที่ครบแล้ว
+            },
+            "child_batch": {
+                "batch_id": child_batch_id,
+                "sub_batch_number": next_sub_number,
+                "total_orders": len(shortage_order_ids),
+                "shortage_reason": shortage_reason
+            }
+        })
+
+    @app.route("/api/batch/<batch_id>/family", methods=["GET"])
+    @login_required
+    def api_get_batch_family(batch_id):
+        """
+        ดึงข้อมูล Batch Family (Parent + All Children)
+        Returns: Parent Batch + Children Batches with progress for each
+        """
+        # หา Batch
+        batch = db.session.get(Batch, batch_id)
+        if not batch:
+            return jsonify({"success": False, "error": "ไม่พบ Batch"}), 404
+
+        # ถ้าเป็น Child Batch → ไปหา Parent
+        if batch.parent_batch_id:
+            parent_batch = db.session.get(Batch, batch.parent_batch_id)
+        else:
+            parent_batch = batch
+
+        # ดึง Children ทั้งหมด
+        children = Batch.query.filter_by(
+            parent_batch_id=parent_batch.batch_id
+        ).order_by(Batch.sub_batch_number).all()
+
+        # คำนวณ Progress แต่ละ Batch
+        def get_batch_info(b):
+            progress = calculate_batch_progress(b.batch_id)
+            return {
+                "batch_id": b.batch_id,
+                "sub_batch_number": b.sub_batch_number,
+                "batch_type": b.batch_type,
+                "total_orders": b.total_orders,
+                "progress_percent": progress["progress_percent"],
+                "total_qty": progress["total_qty"],
+                "completed_qty": progress["completed_qty"],
+                "picked_qty": progress["picked_qty"],
+                "handover_code": b.handover_code,
+                "handover_confirmed": b.handover_confirmed,
+                "shortage_reason": b.shortage_reason,
+                "created_at": to_thai_be(b.created_at)
+            }
+
+        result = {
+            "parent": get_batch_info(parent_batch),
+            "children": [get_batch_info(child) for child in children],
+            "total_children": len(children),
+            "can_split_more": len(children) < 5
+        }
+
+        return jsonify({"success": True, "family": result})
+
+    # ============================================================
+    # Handover & Dispatch APIs
+    # ============================================================
+
     @app.route("/api/handover/verify", methods=["POST"])
     @login_required
     def api_verify_handover():
@@ -2912,6 +3255,12 @@ def create_app():
     def admin_clear():
         """Show admin clear page with checkboxes"""
         return render_template("clear_confirm.html")
+
+    @app.route("/admin/test-stock", methods=["GET"])
+    @login_required
+    def admin_test_stock():
+        """Test stock API page"""
+        return render_template("test_stock.html")
 
     @app.route("/api/admin/preview", methods=["POST"])
     @login_required
@@ -3205,6 +3554,214 @@ def create_app():
 
         except Exception as e:
             return jsonify({"success": False, "error": str(e)}), 500
+
+    @app.route("/api/admin/stock-list", methods=["GET"])
+    @login_required
+    def api_admin_stock_list():
+        """API สำหรับดึงข้อมูลสต็อกพร้อม Pagination และ Filters"""
+        try:
+            # Get query parameters
+            page = int(request.args.get('page', 1))
+            per_page = int(request.args.get('per_page', 100))
+            filter_type = request.args.get('filter', 'all')  # all, low_stock, out_of_stock
+            search = request.args.get('search', '').strip()
+
+            # Build query - Join Stock with Product
+            query = db.session.query(
+                Stock.sku,
+                Stock.qty,
+                Product.brand,
+                Product.model
+            ).outerjoin(Product, Stock.sku == Product.sku)
+
+            # Apply filters
+            if filter_type == 'low_stock':
+                query = query.filter(Stock.qty <= 3, Stock.qty > 0)
+            elif filter_type == 'out_of_stock':
+                query = query.filter(Stock.qty == 0)
+
+            # Apply search
+            if search:
+                query = query.filter(
+                    db.or_(
+                        Stock.sku.like(f'%{search}%'),
+                        Product.brand.like(f'%{search}%'),
+                        Product.model.like(f'%{search}%')
+                    )
+                )
+
+            # Order by qty ascending (show low stock first) then by SKU
+            query = query.order_by(Stock.qty.asc(), Stock.sku.asc())
+
+            # Paginate
+            total = query.count()
+            stocks = query.offset((page - 1) * per_page).limit(per_page).all()
+
+            # Format results
+            stock_list = []
+            for stock in stocks:
+                product_name = f"{stock.brand or ''} {stock.model or ''}".strip() or '-'
+                is_low_stock = stock.qty <= 3 and stock.qty > 0
+                is_out_of_stock = stock.qty == 0
+
+                stock_list.append({
+                    'sku': stock.sku,
+                    'product_name': product_name,
+                    'stock': stock.qty,
+                    'location': '-',  # ยังไม่มีในระบบ
+                    'is_low_stock': is_low_stock,
+                    'is_out_of_stock': is_out_of_stock
+                })
+
+            # Calculate summary
+            total_products = Stock.query.count()
+            low_stock_count = Stock.query.filter(Stock.qty <= 3, Stock.qty > 0).count()
+            out_of_stock_count = Stock.query.filter(Stock.qty == 0).count()
+
+            return jsonify({
+                'success': True,
+                'stocks': stock_list,
+                'pagination': {
+                    'page': page,
+                    'per_page': per_page,
+                    'total': total,
+                    'total_pages': (total + per_page - 1) // per_page
+                },
+                'summary': {
+                    'total_products': total_products,
+                    'low_stock': low_stock_count,
+                    'out_of_stock': out_of_stock_count,
+                    'in_stock': total_products - out_of_stock_count
+                }
+            })
+
+        except Exception as e:
+            print(f"ERROR in /api/admin/stock-list: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route("/api/admin/export-stock-excel", methods=["GET"])
+    @login_required
+    def api_admin_export_stock_excel():
+        """Export Stock to Excel"""
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill, Alignment
+            from io import BytesIO
+
+            # Get filter parameters
+            filter_type = request.args.get('filter', 'all')
+            search = request.args.get('search', '').strip()
+
+            # Build query
+            query = db.session.query(
+                Stock.sku,
+                Stock.qty,
+                Product.brand,
+                Product.model
+            ).outerjoin(Product, Stock.sku == Product.sku)
+
+            # Apply filters
+            if filter_type == 'low_stock':
+                query = query.filter(Stock.qty <= 3, Stock.qty > 0)
+            elif filter_type == 'out_of_stock':
+                query = query.filter(Stock.qty == 0)
+
+            # Apply search
+            if search:
+                query = query.filter(
+                    db.or_(
+                        Stock.sku.like(f'%{search}%'),
+                        Product.brand.like(f'%{search}%'),
+                        Product.model.like(f'%{search}%')
+                    )
+                )
+
+            # Order by qty ascending
+            stocks = query.order_by(Stock.qty.asc(), Stock.sku.asc()).all()
+
+            # Create workbook
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Stock Report"
+
+            # Header styling
+            header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+            header_font = Font(color="FFFFFF", bold=True)
+            header_alignment = Alignment(horizontal="center", vertical="center")
+
+            # Headers
+            headers = ["#", "SKU", "ชื่อสินค้า", "Stock คงเหลือ", "ตำแหน่ง", "สถานะ"]
+            for col_num, header in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col_num)
+                cell.value = header
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = header_alignment
+
+            # Data rows
+            for idx, stock in enumerate(stocks, 1):
+                product_name = f"{stock.brand or ''} {stock.model or ''}".strip() or '-'
+
+                # Status
+                if stock.qty == 0:
+                    status = "หมดสต็อก"
+                elif stock.qty <= 3:
+                    status = "ใกล้หมด"
+                else:
+                    status = "ปกติ"
+
+                ws.cell(row=idx + 1, column=1, value=idx)
+                ws.cell(row=idx + 1, column=2, value=stock.sku)
+                ws.cell(row=idx + 1, column=3, value=product_name)
+                ws.cell(row=idx + 1, column=4, value=stock.qty)
+                ws.cell(row=idx + 1, column=5, value="-")
+                ws.cell(row=idx + 1, column=6, value=status)
+
+                # Highlight low stock rows
+                if stock.qty == 0:
+                    fill = PatternFill(start_color="FFB6C1", end_color="FFB6C1", fill_type="solid")
+                elif stock.qty <= 3:
+                    fill = PatternFill(start_color="FFF4CE", end_color="FFF4CE", fill_type="solid")
+                else:
+                    fill = None
+
+                if fill:
+                    for col in range(1, 7):
+                        ws.cell(row=idx + 1, column=col).fill = fill
+
+            # Adjust column widths
+            ws.column_dimensions['A'].width = 6
+            ws.column_dimensions['B'].width = 25
+            ws.column_dimensions['C'].width = 60
+            ws.column_dimensions['D'].width = 15
+            ws.column_dimensions['E'].width = 20
+            ws.column_dimensions['F'].width = 12
+
+            # Save to BytesIO
+            output = BytesIO()
+            wb.save(output)
+            output.seek(0)
+
+            # Return file
+            from flask import send_file
+            from datetime import datetime
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"stock_report_{timestamp}.xlsx"
+
+            return send_file(
+                output,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                as_attachment=True,
+                download_name=filename
+            )
+
+        except Exception as e:
+            print(f"ERROR in /api/admin/export-stock-excel: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'success': False, 'error': str(e)}), 500
 
     @app.route("/api/admin/delete-multiple", methods=["POST"])
     @login_required
@@ -3795,6 +4352,7 @@ def create_app():
         """API สำหรับดึงข้อมูล Shortage Queue"""
         try:
             status = request.args.get("status", "").strip()
+            order_id = request.args.get("order_id", "").strip()
             batch_id = request.args.get("batch", "").strip()
             sku = request.args.get("sku", "").strip()
 
@@ -3803,6 +4361,8 @@ def create_app():
 
             if status:
                 query = query.filter_by(status=status)
+            if order_id:
+                query = query.filter(ShortageQueue.order_id.like(f"%{order_id}%"))
             if batch_id:
                 query = query.filter(ShortageQueue.original_batch_id.like(f"%{batch_id}%"))
             if sku:
@@ -4307,6 +4867,7 @@ def create_app():
 
             # Get filters from query params
             status = request.args.get('status', '').strip()
+            order_id = request.args.get('order_id', '').strip()
             batch = request.args.get('batch', '').strip()
             sku = request.args.get('sku', '').strip()
 
@@ -4315,6 +4876,8 @@ def create_app():
 
             if status:
                 query = query.filter_by(status=status)
+            if order_id:
+                query = query.filter(ShortageQueue.order_id.like(f'%{order_id}%'))
             if batch:
                 query = query.filter_by(original_batch_id=batch)
             if sku:
@@ -4669,6 +5232,62 @@ def create_app():
             return jsonify({
                 "success": False,
                 "error": f"เกิดข้อผิดพลาดในระบบ: {str(e)}"
+            }), 500
+
+    @app.route("/api/shortage/order-details", methods=["GET"])
+    @login_required
+    def api_shortage_order_details():
+        """API สำหรับดึงข้อมูล Shortage Details ของ Order ID เฉพาะ"""
+        try:
+            order_id = request.args.get("order_id", "").strip()
+
+            if not order_id:
+                return jsonify({"success": False, "error": "กรุณาระบุ Order ID"}), 400
+
+            # หา Shortage Queue ของ Order ID นี้
+            shortages = ShortageQueue.query.filter_by(order_id=order_id).order_by(ShortageQueue.created_at.desc()).all()
+
+            if not shortages:
+                return jsonify({
+                    "success": False,
+                    "error": f"ไม่พบข้อมูล Shortage สำหรับ Order ID: {order_id}"
+                }), 404
+
+            # Format data
+            shortage_data = []
+            for s in shortages:
+                order_line = s.order_line
+                qty_picked_realtime = order_line.picked_qty if order_line else s.qty_picked
+
+                shortage_data.append({
+                    "id": s.id,
+                    "order_id": s.order_id,
+                    "sku": s.sku,
+                    "batch_id": s.original_batch_id,
+                    "qty_required": s.qty_required,
+                    "qty_picked": qty_picked_realtime,
+                    "qty_shortage": s.qty_shortage,
+                    "reason": s.shortage_reason,
+                    "status": s.status,
+                    "created_by": s.created_by_username,
+                    "created_at": to_thai_be(s.created_at) if s.created_at else "-",
+                    "resolved_at": to_thai_be(s.resolved_at) if s.resolved_at else None,
+                    "resolved_by": s.resolved_by_username
+                })
+
+            return jsonify({
+                "success": True,
+                "order_id": order_id,
+                "shortages": shortage_data
+            })
+
+        except Exception as e:
+            print(f"ERROR in /api/shortage/order-details: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                "success": False,
+                "error": f"เกิดข้อผิดพลาด: {str(e)}"
             }), 500
 
     # -----------------------

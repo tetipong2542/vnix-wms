@@ -104,9 +104,9 @@
                           <thead>
                             <tr>
                               <th>Order ID</th>
-                              <th class="text-center">ต้องการ</th>
-                              <th class="text-center">หยิบแล้ว</th>
-                              <th class="text-center">ขาด</th>
+                              <th class="text-center" title="จำนวนที่ต้องการในออเดอร์นี้">ต้องการ</th>
+                              <th class="text-center" title="จำนวนที่หยิบไปแล้ว">หยิบแล้ว</th>
+                              <th class="text-center" title="จำนวนที่ยังขาด (ต้องการ - หยิบแล้ว)">ต้องการอีก</th>
                               <th>สถานะ</th>
                             </tr>
                           </thead>
@@ -512,15 +512,27 @@ function showSKUInfo(data) {
         const statusBadge = {
           'ready': '<span class="badge bg-success">พร้อมส่ง</span>',
           'partial_ready': '<span class="badge bg-warning text-dark">บางส่วน</span>',
-          'pending': '<span class="badge bg-secondary">รอหยิบ</span>'
+          'pending': '<span class="badge bg-secondary">รอหยิบ</span>',
+          'shortage': '<span class="badge bg-danger">shortage</span>'
         }[order.status] || `<span class="badge bg-secondary">${order.status}</span>`;
+
+        // ✅ แก้ไข: คำนวณ "ขาด" = ต้องการ - หยิบแล้ว (แทนการใช้ shortage_qty)
+        // เพราะ shortage_qty จะมีค่าเฉพาะเมื่อ Mark as Shortage แล้ว
+        const remaining = Math.max(0, order.qty - order.picked_qty);
+        const isShortage = remaining > 0;
+
+        // ✅ NEW: ทำให้ Order ID คลิกได้ถ้ามีสถานะ shortage หรือ partial_ready
+        const canViewShortage = order.status === 'shortage' || order.status === 'partial_ready';
+        const orderIdDisplay = canViewShortage
+          ? `<a href="#" class="text-primary text-decoration-none" onclick="showShortageModal('${order.order_id}'); return false;" title="คลิกดูรายละเอียด"><u>${order.order_id}</u></a>`
+          : order.order_id;
 
         const row = `
           <tr>
-            <td>${order.order_id}</td>
+            <td>${orderIdDisplay}</td>
             <td class="text-center">${order.qty}</td>
             <td class="text-center ${order.picked_qty > 0 ? 'text-success fw-bold' : ''}">${order.picked_qty}</td>
-            <td class="text-center ${order.shortage_qty > 0 ? 'text-danger fw-bold' : ''}">${order.shortage_qty}</td>
+            <td class="text-center ${isShortage ? 'text-danger fw-bold' : ''}">${remaining}</td>
             <td>${statusBadge}</td>
           </tr>
         `;
@@ -1014,6 +1026,122 @@ function confirmShortage() {
   });
 }
 
+// ✅ NEW: Show Shortage Modal with Order Details
+function showShortageModal(orderId) {
+  // Show loading state
+  const modalBody = document.getElementById('shortage-modal-body');
+  modalBody.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-warning"></div><p class="mt-2">กำลังโหลด...</p></div>';
+
+  const modal = new bootstrap.Modal(document.getElementById('shortageDetailsModal'));
+  modal.show();
+
+  // Fetch shortage details
+  fetch(`/api/shortage/order-details?order_id=${encodeURIComponent(orderId)}`)
+    .then(response => response.json())
+    .then(data => {
+      if (data.success && data.shortages.length > 0) {
+        let html = '';
+
+        data.shortages.forEach((shortage, index) => {
+          const statusBadge = {
+            'pending': '<span class="badge bg-warning text-dark">รอจัดการ</span>',
+            'waiting_stock': '<span class="badge bg-info">รอสต็อกเข้า</span>',
+            'cancelled': '<span class="badge bg-secondary">ยกเลิกแล้ว</span>',
+            'replaced': '<span class="badge bg-primary">แทน SKU แล้ว</span>',
+            'resolved': '<span class="badge bg-success">จัดการแล้ว</span>'
+          }[shortage.status] || `<span class="badge bg-secondary">${shortage.status}</span>`;
+
+          html += `
+            ${index > 0 ? '<hr>' : ''}
+            <div class="mb-3">
+              <div class="row">
+                <div class="col-6">
+                  <strong>Order ID:</strong><br>
+                  <span class="text-primary">${shortage.order_id}</span>
+                </div>
+                <div class="col-6 text-end">
+                  <strong>สถานะ:</strong><br>
+                  ${statusBadge}
+                </div>
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <strong>SKU:</strong><br>
+              <code>${shortage.sku}</code>
+            </div>
+
+            <div class="mb-3">
+              <strong>Batch:</strong><br>
+              <span class="text-muted">${shortage.batch_id || '-'}</span>
+            </div>
+
+            <div class="row mb-3">
+              <div class="col-4">
+                <strong>ต้องการ:</strong><br>
+                <span class="text-primary">${shortage.qty_required} ชิ้น</span>
+              </div>
+              <div class="col-4">
+                <strong>หยิบได้:</strong><br>
+                <span class="text-success">${shortage.qty_picked} ชิ้น</span>
+              </div>
+              <div class="col-4">
+                <strong>ขาด:</strong><br>
+                <span class="text-danger fw-bold">${shortage.qty_shortage} ชิ้น</span>
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <strong>เหตุผล:</strong><br>
+              <div class="alert alert-warning mb-0 mt-1">
+                ${shortage.reason || '-'}
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="col-6">
+                <small class="text-muted">
+                  <strong>สร้างโดย:</strong> ${shortage.created_by}<br>
+                  <strong>วันที่:</strong> ${shortage.created_at}
+                </small>
+              </div>
+              ${shortage.resolved_by ? `
+                <div class="col-6">
+                  <small class="text-muted">
+                    <strong>จัดการโดย:</strong> ${shortage.resolved_by}<br>
+                    <strong>วันที่:</strong> ${shortage.resolved_at}
+                  </small>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        });
+
+        modalBody.innerHTML = html;
+      } else {
+        modalBody.innerHTML = `
+          <div class="alert alert-info">
+            <i data-lucide="info" style="width: 20px; height: 20px;"></i>
+            ไม่พบข้อมูล Shortage สำหรับ Order ID: <strong>${orderId}</strong><br>
+            <small class="text-muted">Order นี้อาจยังไม่ได้บันทึก Shortage หรือถูกจัดการไปแล้ว</small>
+          </div>
+        `;
+      }
+
+      // Refresh Lucide icons
+      if (window.refreshIcons) window.refreshIcons();
+    })
+    .catch(err => {
+      modalBody.innerHTML = `
+        <div class="alert alert-danger">
+          <i data-lucide="alert-circle" style="width: 20px; height: 20px;"></i>
+          เกิดข้อผิดพลาด: ${err.message}
+        </div>
+      `;
+      if (window.refreshIcons) window.refreshIcons();
+    });
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', function() {
   initScanner();
@@ -1032,4 +1160,29 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 </script>
+
+<!-- ✅ NEW: Shortage Details Modal -->
+<div class="modal fade" id="shortageDetailsModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-warning text-dark">
+        <h5 class="modal-title">
+          <i data-lucide="alert-triangle" style="width: 20px; height: 20px;"></i>
+          รายละเอียด Shortage
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="shortage-modal-body">
+        <div class="text-center py-4">
+          <div class="spinner-border text-warning"></div>
+          <p class="mt-2">กำลังโหลด...</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ปิด</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
