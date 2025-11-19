@@ -24,8 +24,14 @@ class Stock(db.Model):
     __tablename__ = "stocks"
     id = db.Column(db.Integer, primary_key=True)
     sku = db.Column(db.String(64), nullable=False, index=True)
-    qty = db.Column(db.Integer, default=0)
+    qty = db.Column(db.Integer, default=0)  # Total stock quantity (from POS import)
+    reserved_qty = db.Column(db.Integer, default=0)  # Reserved for batches (virtual deduction)
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(TH_TZ), onupdate=lambda: datetime.now(TH_TZ))
+
+    @property
+    def available_qty(self):
+        """Available stock = total - reserved"""
+        return max(0, (self.qty or 0) - (self.reserved_qty or 0))
 
 class Sales(db.Model):
     __tablename__ = "sales"

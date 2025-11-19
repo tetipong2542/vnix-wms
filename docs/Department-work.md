@@ -539,12 +539,17 @@ users = [
     User(username='online_admin', password=generate_password_hash('password'), department='online', role='admin'),
     User(username='online_staff1', password=generate_password_hash('password'), department='online', role='staff'),
     User(username='online_staff2', password=generate_password_hash('password'), department='online', role='staff'),
+    User(username='Online_staff3', password=generate_password_hash('password'), department='online', role='staff'),
 
     # Warehouse Team
     User(username='picker1', password=generate_password_hash('password'), department='warehouse', role='picker'),
     User(username='picker2', password=generate_password_hash('password'), department='warehouse', role='picker'),
+    User(username='picker3', password=generate_password_hash('password'), department='warehouse', role='picker'),
+    User(username='picker4', password=generate_password_hash('password'), department='warehouse', role='picker'),
     User(username='packer1', password=generate_password_hash('password'), department='warehouse', role='packer'),
     User(username='packer2', password=generate_password_hash('password'), department='warehouse', role='packer'),
+    User(username='packer3', password=generate_password_hash('password'), department='warehouse', role='packer'),
+    User(username='packer4', password=generate_password_hash('password'), department='warehouse', role='packer')
 ]
 
 for user in users:

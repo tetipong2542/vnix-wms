@@ -251,7 +251,7 @@ def can_generate_handover_code(batch):
     """Check if batch can generate handover code"""
     progress = calculate_batch_progress(batch.batch_id)
     return progress["progress_percent"] >= 100
-    # Progress คำนวณจาก: (picked_qty + shortage_resolved_qty) / total_qty * 100
+    # Progress คำนวณจาก: picked_qty / total_qty * 100 (shortage ไม่นับเป็นความสำเร็จ)
 ```
 
 ### Rule 3: Shortage ต้องได้รับการจัดการก่อนถึง resolve

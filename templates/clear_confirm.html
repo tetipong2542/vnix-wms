@@ -139,6 +139,30 @@
                   </button>
                 </h6>
                 <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="audit_logs_import_orders" id="opt_audit_logs_import_orders">
+                  <label class="form-check-label" for="opt_audit_logs_import_orders">
+                    <i data-lucide="shopping-cart" style="width: 14px; height: 14px;"></i> ลบ Log การนำเข้า Orders
+                  </label>
+                </div>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="audit_logs_import_products" id="opt_audit_logs_import_products">
+                  <label class="form-check-label" for="opt_audit_logs_import_products">
+                    <i data-lucide="package" style="width: 14px; height: 14px;"></i> ลบ Log การนำเข้าสินค้า
+                  </label>
+                </div>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="audit_logs_import_stock" id="opt_audit_logs_import_stock">
+                  <label class="form-check-label" for="opt_audit_logs_import_stock">
+                    <i data-lucide="database" style="width: 14px; height: 14px;"></i> ลบ Log การนำเข้าสต็อก
+                  </label>
+                </div>
+                <div class="form-check mb-2">
+                  <input class="form-check-input delete-option" type="checkbox" value="audit_logs_import_sales" id="opt_audit_logs_import_sales">
+                  <label class="form-check-label" for="opt_audit_logs_import_sales">
+                    <i data-lucide="trending-up" style="width: 14px; height: 14px;"></i> ลบ Log การนำเข้าสั่งขาย
+                  </label>
+                </div>
+                <div class="form-check mb-2">
                   <input class="form-check-input delete-option" type="checkbox" value="audit_logs_old" id="opt_audit_logs_old">
                   <label class="form-check-label" for="opt_audit_logs_old">
                     <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> ลบ Audit Logs (เก่ากว่า 30 วัน)
@@ -375,8 +399,8 @@
             <thead class="table-warning">
               <tr>
                 <th style="width: 50px;">#</th>
-                <th>SKU</th>
-                <th>ชื่อสินค้า</th>
+                <th class="text-center" style="width: 120px;">SKU</th>
+                <th class="text-center" style="width: 120px;">ชื่อสินค้า</th>
                 <th class="text-center" style="width: 120px;">Stock คงเหลือ</th>
                 <th class="text-center" style="width: 150px;">ตำแหน่ง</th>
                 <th class="text-center" style="width: 100px;">สถานะ</th>
@@ -425,6 +449,10 @@ const scopeLabels = {
   'batches_all': 'ลบ Batch ทั้งหมด',
   'products_all': 'ลบข้อมูลสินค้าทั้งหมด',
   'stock_all': 'ลบข้อมูลสต็อกทั้งหมด',
+  'audit_logs_import_orders': 'ลบ Log การนำเข้า Orders',
+  'audit_logs_import_products': 'ลบ Log การนำเข้าสินค้า',
+  'audit_logs_import_stock': 'ลบ Log การนำเข้าสต็อก',
+  'audit_logs_import_sales': 'ลบ Log การนำเข้าสั่งขาย',
   'audit_logs': 'ลบ Audit Logs ทั้งหมด',
   'audit_logs_old': 'ลบ Audit Logs (เก่ากว่า 30 วัน)',
   'shortage_queue_pending': 'ลบ Shortage Queue (รอจัดการ)',

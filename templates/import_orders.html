@@ -11,10 +11,10 @@
 
   <div class="card">
     <div class="card-body">
-      <form method="post" enctype="multipart/form-data" class="row g-3">
+      <form id="importForm" method="post" enctype="multipart/form-data" class="row g-3">
   <div class="col-md-3">
     <label class="form-label">แพลตฟอร์ม</label>
-    <select name="platform" class="form-select" required>
+    <select name="platform" id="platform" class="form-select" required>
       <option value="">เลือกแพลตฟอร์ม</option>
       <option>Shopee</option>
       <option>TikTok</option>
@@ -24,17 +24,17 @@
   </div>
   <div class="col-md-3">
     <label class="form-label">ชื่อร้าน</label>
-    <input name="shop_name" class="form-control" list="shops" placeholder="พิมพ์หรือเลือก" required>
+    <input name="shop_name" id="shop_name" class="form-control" list="shops" placeholder="พิมพ์หรือเลือก" required>
     <datalist id="shops">
       {% for s in shops %}<option value="{{s.name}} ({{s.platform}})">{% endfor %}
     </datalist>
   </div>
   <div class="col-md-4">
     <label class="form-label">ไฟล์ Excel</label>
-    <input type="file" name="file" class="form-control" required>
+    <input type="file" name="file" id="file" class="form-control" required>
   </div>
         <div class="col-12">
-          <button class="btn btn-primary">
+          <button type="submit" class="btn btn-primary" onclick="return confirmImport()">
             <i data-lucide="upload"></i> นำเข้า
           </button>
           <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">
@@ -44,5 +44,78 @@
       </form>
     </div>
   </div>
+
+  <!-- Import History Log -->
+  {% if logs %}
+  <div class="card mt-4">
+    <div class="card-header bg-light">
+      <h5 class="mb-0">
+        <i data-lucide="clock"></i> ประวัติการนำเข้า Orders
+      </h5>
+    </div>
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table table-hover table-sm">
+          <thead class="table-light">
+            <tr>
+              <th style="width: 5%;">#</th>
+              <th style="width: 18%;">วันเวลา</th>
+              <th style="width: 12%;">ผู้ทำรายการ</th>
+              <th style="width: 12%;">แพลตฟอร์ม</th>
+              <th style="width: 15%;">ร้าน</th>
+              <th style="width: 13%;">จำนวน</th>
+              <th style="width: 25%;">ไฟล์</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for log in logs %}
+            {% set details = log.details|from_json if log.details else {} %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td>
+                {% if log.timestamp %}
+                  {{ log.timestamp.strftime('%d/%m/%Y %H:%M:%S') }}
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+              <td>{{ log.username or 'N/A' }}</td>
+              <td>
+                <span class="badge bg-info">{{ details.platform or 'N/A' }}</span>
+              </td>
+              <td>
+                <small>{{ details.shop_name or 'N/A' }}</small>
+              </td>
+              <td>
+                <span class="badge bg-success">+{{ details.imported or 0 }}</span>
+                {% if details.updated and details.updated > 0 %}
+                <span class="badge bg-warning">~{{ details.updated }}</span>
+                {% endif %}
+              </td>
+              <td>
+                <small class="text-muted">{{ details.filename or 'N/A' }}</small>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="text-muted small mb-0 mt-2">
+        <i data-lucide="info"></i> แสดงประวัติการนำเข้า 50 รายการล่าสุด
+      </p>
+    </div>
+  </div>
+  {% endif %}
 </div>
+
+<script>
+function confirmImport() {
+  const platform = document.getElementById('platform').value;
+  const shop = document.getElementById('shop_name').value;
+  const file = document.getElementById('file').files[0];
+  const fileName = file ? file.name : 'ไม่มีไฟล์';
+
+  return confirm(`ยืนยันการนำเข้าข้อมูล?\n\nแพลตฟอร์ม: ${platform}\nชื่อร้าน: ${shop}\nไฟล์: ${fileName}`);
+}
+</script>
 {% endblock %}

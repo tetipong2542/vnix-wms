@@ -37,6 +37,10 @@ Thumbs.db
 # Logs
 *.log
 
+# Backups
+backups/*.db
+backups/backup.log
+
 # Cursor/IDE rules
 .clinerules/byterover-rules.md
 .kilocode/rules/byterover-rules.md

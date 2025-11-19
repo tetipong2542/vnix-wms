@@ -111,17 +111,10 @@
               <form method="POST" action="{{ url_for('batch_create') }}" id="createBatchForm">
                 <input type="hidden" name="platform" value="{{ platform }}">
 
-                <div class="mb-3">
-                  <label for="run_no" class="form-label">เลือกรอบ (Run):</label>
-                  <select name="run_no" id="run_no" class="form-select" required>
-                    <option value="1">Run 1</option>
-                    <option value="2">Run 2</option>
-                    <option value="3">Run 3</option>
-                    <option value="4">Custom Run 4</option>
-                  </select>
-                  <small class="form-text text-muted">
-                    Batch ID จะถูกสร้างเป็น: <strong id="batchIdPreview"></strong>
-                  </small>
+                <div class="alert alert-info">
+                  <i data-lucide="info" style="width: 16px; height: 16px;"></i>
+                  <strong>รหัส Run จะถูกสร้างอัตโนมัติ</strong><br>
+                  <small>ระบบจะเลือกหมายเลข Run ถัดไปที่ว่างให้อัตโนมัติ เพื่อป้องกันการซ้ำซ้อน</small>
                 </div>
 
                 <div class="alert alert-warning">

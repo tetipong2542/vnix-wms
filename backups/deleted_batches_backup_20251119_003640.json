@@ -1,0 +1,45 @@
+{
+  "backup_date": "2025-11-19T00:36:40.243920",
+  "batches": [
+    {
+      "batch_id": "LA-2025-11-18-R1",
+      "platform": "Lazada",
+      "batch_date": "2025-11-18",
+      "run_no": 1,
+      "total_orders": 2,
+      "created_by": "admin",
+      "created_at": "2025-11-18 22:49:08.679669",
+      "orders": [
+        {
+          "order_id": "1050580003140243",
+          "sku": "V-RG-RAP52-OD",
+          "qty": 2,
+          "batch_status": "batched"
+        },
+        {
+          "order_id": "1058055394029766",
+          "sku": "V-SDCZ430-032G-G46",
+          "qty": 1,
+          "batch_status": "batched"
+        }
+      ]
+    },
+    {
+      "batch_id": "LA-2025-11-18-R1.1",
+      "platform": "Lazada",
+      "batch_date": "2025-11-18",
+      "run_no": 1,
+      "total_orders": 1,
+      "created_by": "admin",
+      "created_at": "2025-11-18 22:50:54.329285",
+      "orders": [
+        {
+          "order_id": "1050441215896022",
+          "sku": "21-ZKTE-000442",
+          "qty": 1,
+          "batch_status": "batched"
+        }
+      ]
+    }
+  ]
+}

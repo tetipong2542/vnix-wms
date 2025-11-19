@@ -147,10 +147,13 @@ def import_stock(df: pd.DataFrame) -> int:
 
         st = Stock.query.filter_by(sku=sku).first()
         if not st:
-            st = Stock(sku=sku, qty=qty)
+            st = Stock(sku=sku, qty=qty, reserved_qty=0)
             db.session.add(st)
         else:
             st.qty = qty
+            # ✅ Reset reserved_qty when importing fresh stock from POS
+            # This ensures stock numbers sync with POS (source of truth)
+            st.reserved_qty = 0
 
         # ถ้ามีฟิลด์ product.stock_qty ให้ sync ด้วย
         prod = Product.query.filter_by(sku=sku).first()

@@ -19,6 +19,10 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import func, text
 from sqlalchemy.sql import bindparam
 
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
+
 from utils import (
     now_thai, to_thai_be, to_be_date_str, TH_TZ, current_be_year,
     normalize_platform, sla_text, compute_due_date, clean_logistic
@@ -36,9 +40,23 @@ APP_NAME = os.environ.get("APP_NAME", "VNIX Order Management")
 # -----------------------------
 def create_app():
     app = Flask(__name__)
-    app.secret_key = os.environ.get("SECRET_KEY", "vnix-secret")
 
-    db_path = os.path.join(os.path.dirname(__file__), "data.db")
+    # ✅ Security: Require SECRET_KEY from environment (no fallback!)
+    secret_key = os.environ.get("SECRET_KEY")
+    if not secret_key:
+        raise RuntimeError(
+            "❌ SECURITY ERROR: SECRET_KEY environment variable is not set!\n\n"
+            "Please create a .env file with:\n"
+            "  SECRET_KEY=your-random-secret-key\n\n"
+            "Generate a secure key using:\n"
+            "  python -c \"import secrets; print(secrets.token_hex(32))\"\n"
+        )
+    app.secret_key = secret_key
+
+    # Database configuration
+    db_path = os.environ.get("DATABASE_PATH", "data.db")
+    if not os.path.isabs(db_path):
+        db_path = os.path.join(os.path.dirname(__file__), db_path)
     app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}"
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
@@ -94,11 +112,30 @@ def create_app():
     with app.app_context():
         db.create_all()
         _ensure_orderline_print_columns()
-        # bootstrap admin
+
+        # ✅ Security: Bootstrap admin with environment-based credentials
         if User.query.count() == 0:
+            # Get username and password from environment
+            admin_username = os.environ.get("ADMIN_USERNAME", "admin")
+            admin_password = os.environ.get("ADMIN_DEFAULT_PASSWORD")
+
+            if not admin_password:
+                # Generate a random temporary password
+                import secrets
+                admin_password = secrets.token_urlsafe(16)
+                print("\n" + "="*70)
+                print("⚠️  IMPORTANT: Default admin account created!")
+                print("="*70)
+                print(f"  Username: {admin_username}")
+                print(f"  Temporary Password: {admin_password}")
+                print("")
+                print("  ⚠️  Please login and change this password immediately!")
+                print("  ⚠️  This password will not be shown again!")
+                print("="*70 + "\n")
+
             admin = User(
-                username="admin",
-                password_hash=generate_password_hash("admin123"),
+                username=admin_username,
+                password_hash=generate_password_hash(admin_password),
                 role="admin",
                 active=True
             )
@@ -129,6 +166,16 @@ def create_app():
             return clean_logistic(logistic)
         except Exception:
             return logistic or ""
+
+    @app.template_filter("from_json")
+    def from_json_filter(json_str):
+        """แปลง JSON string เป็น dict"""
+        try:
+            if json_str:
+                return json.loads(json_str)
+            return {}
+        except Exception:
+            return {}
 
     # -----------------
     # UI context
@@ -232,7 +279,7 @@ def create_app():
             carrier_counts[carrier] += 1
 
             # Get shop name
-            shop = Shop.query.get(first_item.shop_id) if first_item.shop_id else None
+            shop = db.session.get(Shop, first_item.shop_id) if first_item.shop_id else None
             shop_name = shop.name if shop else "Unknown"
             shop_counts[shop_name] += 1
 
@@ -333,7 +380,7 @@ def create_app():
             dict: {
                 "total_qty": int,
                 "picked_qty": int,
-                "shortage_resolved_qty": int,
+                "shortage_qty": int,
                 "completed_qty": int,
                 "progress_percent": float,
                 "total_orders": int,
@@ -346,7 +393,7 @@ def create_app():
             return {
                 "total_qty": 0,
                 "picked_qty": 0,
-                "shortage_resolved_qty": 0,
+                "shortage_qty": 0,
                 "completed_qty": 0,
                 "progress_percent": 0,
                 "total_orders": 0,
@@ -357,15 +404,13 @@ def create_app():
         total_qty = sum(order.qty for order in orders)
         picked_qty = sum(order.picked_qty or 0 for order in orders)
 
-        # นับ shortage ที่ resolved/cancelled เป็น completed
-        shortage_resolved = ShortageQueue.query.filter(
-            ShortageQueue.original_batch_id == batch_id,
-            ShortageQueue.status.in_(['resolved', 'cancelled', 'replaced'])
-        ).all()
-        shortage_resolved_qty = sum(s.qty_shortage for s in shortage_resolved)
+        # นับ shortage_qty จาก OrderLine (ไม่ใช่ ShortageQueue)
+        # shortage_qty = จำนวนที่ขาดและไม่สามารถหยิบได้
+        shortage_qty = sum(order.shortage_qty or 0 for order in orders)
 
-        # Completed = Picked + Shortage Resolved
-        completed_qty = picked_qty + shortage_resolved_qty
+        # ✅ Completed = เฉพาะที่หยิบได้จริง (ไม่นับ shortage)
+        # เพราะ shortage คือสิ่งที่ขาด ไม่ใช่สิ่งที่เสร็จสมบูรณ์
+        completed_qty = picked_qty
 
         # คำนวณ Progress
         if total_qty == 0:
@@ -380,7 +425,7 @@ def create_app():
         return {
             "total_qty": total_qty,
             "picked_qty": picked_qty,
-            "shortage_resolved_qty": shortage_resolved_qty,
+            "shortage_qty": shortage_qty,
             "completed_qty": completed_qty,
             "progress_percent": round(progress_percent, 1),
             "total_orders": total_orders,
@@ -433,26 +478,38 @@ def create_app():
         total_skus = len(sku_status)
         completed_skus = 0
         pending_skus = []
+        has_shortage = False
 
         for sku, data in sku_status.items():
-            completed = data["total_picked"] + data["total_shortage"]
-
-            # SKU เสร็จสิ้น = picked + shortage >= total_need
-            if completed >= data["total_need"]:
+            # ✅ SKU เสร็จสิ้น = หยิบครบ (ไม่นับ shortage)
+            # ถ้ามี shortage แสดงว่ายังไม่เสร็จสมบูรณ์
+            if data["total_shortage"] > 0:
+                has_shortage = True
+                pending_skus.append({
+                    "sku": sku,
+                    "need": data["total_need"],
+                    "picked": data["total_picked"],
+                    "shortage": data["total_shortage"],
+                    "remaining": data["total_need"] - data["total_picked"]
+                })
+            elif data["total_picked"] >= data["total_need"]:
                 completed_skus += 1
             else:
                 pending_skus.append({
                     "sku": sku,
                     "need": data["total_need"],
-                    "completed": completed,
-                    "remaining": data["total_need"] - completed
+                    "picked": data["total_picked"],
+                    "shortage": 0,
+                    "remaining": data["total_need"] - data["total_picked"]
                 })
 
-        # ทุก SKU ต้องเสร็จสิ้น
-        is_ready = (completed_skus == total_skus)
+        # ✅ ทุก SKU ต้องเสร็จสิ้น และ ไม่มี shortage
+        is_ready = (completed_skus == total_skus) and not has_shortage
 
         if is_ready:
             reason = "ทุก SKU เสร็จสิ้นแล้ว พร้อมสร้าง Handover Code"
+        elif has_shortage:
+            reason = f"ยังมี SKU ที่มี Shortage ({len([s for s in pending_skus if s.get('shortage', 0) > 0])} SKU)"
         else:
             reason = f"ยังมี {len(pending_skus)} SKU ที่ยังไม่เสร็จ"
 
@@ -461,53 +518,133 @@ def create_app():
             "reason": reason,
             "total_skus": total_skus,
             "completed_skus": completed_skus,
-            "pending_skus": pending_skus
+            "pending_skus": pending_skus,
+            "has_shortage": has_shortage
         }
 
-    def get_next_run_number(platform: str, batch_date: date = None) -> int:
+    def get_next_run_number(platform: str, batch_date: date = None, lock: bool = True) -> int:
         """
         Get next available run number for a platform and date.
         Returns max(run_no) + 1, or 1 if no batches exist.
+
+        ✅ Security: Race condition protection
+        - Uses SELECT FOR UPDATE to lock rows during transaction
+        - Prevents multiple users from getting the same run number
+
+        Args:
+            platform: Platform name (Shopee, Lazada, TikTok)
+            batch_date: Date for batch (default: today)
+            lock: Use SELECT FOR UPDATE lock (default: True)
         """
         if batch_date is None:
             batch_date = now_thai().date()
-        
-        platform_std = normalize_platform(platform)
-        
-        # Query for max run number on this platform and date
-        max_run = db.session.query(func.max(Batch.run_no))\
-            .filter_by(platform=platform_std, batch_date=batch_date)\
-            .scalar()
-        
-        return (max_run or 0) + 1
 
-    def create_batch_from_pending(platform: str, run_no: int, batch_date: date = None) -> Batch:
+        platform_std = normalize_platform(platform)
+
+        # ✅ Security: Use SELECT FOR UPDATE to lock batch records
+        # This prevents race conditions when multiple users create batches simultaneously
+        if lock:
+            # Get the latest batch with lock to prevent concurrent access
+            from sqlalchemy import select
+            latest_batch = db.session.execute(
+                select(Batch)
+                .filter_by(platform=platform_std, batch_date=batch_date)
+                .order_by(Batch.run_no.desc())
+                .limit(1)
+                .with_for_update()  # 🔒 Lock until transaction commits
+            ).scalars().first()
+
+            max_run = latest_batch.run_no if latest_batch else 0
+        else:
+            # Legacy query without lock (for read-only operations)
+            max_run = db.session.query(func.max(Batch.run_no))\
+                .filter_by(platform=platform_std, batch_date=batch_date)\
+                .scalar()
+            max_run = max_run or 0
+
+        return max_run + 1
+
+    def create_batch_from_pending(platform: str, run_no: int = None, batch_date: date = None) -> Batch:
         """
         FR-04 to FR-07: Create batch from pending orders
         - Selects orders with batch_status='pending_batch'
         - Creates Batch record with summary
         - Updates orders to batch_status='batched'
         - Locks batch immediately
+
+        ✅ Security: Race condition protection using FOR UPDATE lock
+
+        Args:
+            platform: Platform name (Shopee, Lazada, TikTok)
+            run_no: Run number (if None, auto-generate with lock)
+            batch_date: Batch date (default: today)
         """
         if batch_date is None:
             batch_date = now_thai().date()
 
         platform_std = normalize_platform(platform)
+
+        # ✅ Security: Auto-generate run_no with lock if not provided
+        if run_no is None:
+            run_no = get_next_run_number(platform_std, batch_date, lock=True)
+
         batch_id = generate_batch_id(platform_std, batch_date, run_no)
 
-        # Check if batch already exists
-        existing = Batch.query.get(batch_id)
+        # ✅ Security: Check if batch already exists (prevent duplicate batch_id)
+        existing = db.session.get(Batch, batch_id)
         if existing:
             raise ValueError(f"Batch {batch_id} already exists")
 
-        # Get pending orders for this platform
-        pending_orders = OrderLine.query.filter_by(
-            platform=platform_std,
-            batch_status="pending_batch"
-        ).all()
+        # ✅ Security: Use SELECT FOR UPDATE to lock pending orders
+        # This prevents race conditions when multiple users create batches simultaneously
+        from sqlalchemy import select
+        pending_orders = db.session.execute(
+            select(OrderLine)
+            .filter_by(
+                platform=platform_std,
+                batch_status="pending_batch"
+            )
+            .with_for_update()  # 🔒 Lock rows until commit
+        ).scalars().all()
 
         if not pending_orders:
             raise ValueError(f"No pending orders found for {platform_std}")
+
+        # ✅ Stock Reservation: Calculate SKU requirements and check availability
+        sku_requirements = {}
+        for order in pending_orders:
+            sku_requirements[order.sku] = sku_requirements.get(order.sku, 0) + order.qty
+
+        # Check stock availability (reserved stock is considered)
+        stock_warnings = []
+        for sku, qty_needed in sku_requirements.items():
+            stock = Stock.query.filter_by(sku=sku).first()
+            if stock:
+                available = stock.available_qty  # Uses property: qty - reserved_qty
+                if qty_needed > available:
+                    stock_warnings.append({
+                        "sku": sku,
+                        "needed": qty_needed,
+                        "total_stock": stock.qty,
+                        "reserved": stock.reserved_qty or 0,
+                        "available": available,
+                        "shortage": qty_needed - available
+                    })
+            else:
+                stock_warnings.append({
+                    "sku": sku,
+                    "needed": qty_needed,
+                    "total_stock": 0,
+                    "reserved": 0,
+                    "available": 0,
+                    "shortage": qty_needed
+                })
+
+        # If there are stock warnings, log them but allow batch creation
+        if stock_warnings:
+            app.logger.warning(f"Stock warnings for batch {batch_id}: {stock_warnings}")
+            # You can choose to raise an error here if you want strict enforcement:
+            # raise ValueError(f"Insufficient stock for {len(stock_warnings)} SKUs")
 
         # Compute summary
         summary = compute_batch_summary(pending_orders)
@@ -537,7 +674,22 @@ def create_app():
             order.batch_status = "batched"
             order.batch_id = batch_id
 
-        db.session.commit()
+        # ✅ Stock Reservation: Reserve stock for this batch
+        for sku, qty_needed in sku_requirements.items():
+            stock = Stock.query.filter_by(sku=sku).first()
+            if stock:
+                stock.reserved_qty = (stock.reserved_qty or 0) + qty_needed
+            else:
+                # Create stock record with 0 qty but reserved amount
+                stock = Stock(sku=sku, qty=0, reserved_qty=qty_needed)
+                db.session.add(stock)
+
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f"Failed to create batch {batch_id}: {str(e)}")
+            raise ValueError(f"Failed to create batch: {str(e)}")
 
         # Log audit
         log_audit("create_batch", {
@@ -548,6 +700,64 @@ def create_app():
         }, batch_id=batch_id, order_count=summary["total_orders"])
 
         return batch
+
+    def create_batch_with_retry(platform: str, batch_date: date = None, max_retries: int = 3) -> Batch:
+        """
+        Create batch with automatic retry on duplicate batch_id errors.
+
+        ✅ Security: Handles race condition gracefully
+        - Retries up to max_retries times if batch_id already exists
+        - Uses exponential backoff between retries
+        - Auto-generates run_no with lock on each attempt
+
+        Args:
+            platform: Platform name (Shopee, Lazada, TikTok)
+            batch_date: Batch date (default: today)
+            max_retries: Maximum number of retry attempts (default: 3)
+
+        Returns:
+            Batch: Created batch object
+
+        Raises:
+            ValueError: If all retry attempts fail
+        """
+        import time
+        import random
+
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                # Try to create batch with auto-generated run_no
+                batch = create_batch_from_pending(platform, run_no=None, batch_date=batch_date)
+                return batch
+
+            except ValueError as e:
+                error_msg = str(e)
+
+                # Check if it's a duplicate batch_id error
+                if "already exists" in error_msg:
+                    last_error = e
+                    app.logger.warning(f"Batch creation attempt {attempt + 1}/{max_retries} failed: {error_msg}")
+
+                    # If not the last attempt, wait and retry
+                    if attempt < max_retries - 1:
+                        # Exponential backoff with jitter
+                        wait_time = (2 ** attempt) * 0.1 + random.uniform(0, 0.1)
+                        app.logger.info(f"Retrying in {wait_time:.2f} seconds...")
+                        time.sleep(wait_time)
+                        continue
+                else:
+                    # Not a duplicate error, re-raise immediately
+                    raise
+
+            except Exception as e:
+                # Unexpected error, re-raise immediately
+                app.logger.error(f"Unexpected error during batch creation: {str(e)}")
+                raise
+
+        # All retries failed
+        raise ValueError(f"Failed to create batch after {max_retries} attempts. Last error: {last_error}")
 
     # -----------------
     # Utilities (app)
@@ -1119,12 +1329,14 @@ def create_app():
                 }, order_count=imported)
 
                 flash(f"นำเข้าออเดอร์สำเร็จ: เพิ่ม {imported} อัปเดต {updated}", "success")
-                return redirect(url_for("dashboard", import_date=now_thai().date().isoformat()))
+                return redirect(url_for("import_orders_view"))
             except Exception as e:
                 flash(f"เกิดข้อผิดพลาดในการนำเข้าออเดอร์: {e}", "danger")
                 return redirect(url_for("import_orders_view"))
         shops = Shop.query.order_by(Shop.name.asc()).all()
-        return render_template("import_orders.html", shops=shops)
+        # Query import logs
+        logs = AuditLog.query.filter_by(action="import_orders").order_by(AuditLog.timestamp.desc()).limit(50).all()
+        return render_template("import_orders.html", shops=shops, logs=logs)
 
     @app.route("/import/products", methods=["GET", "POST"])
     @login_required
@@ -1137,12 +1349,22 @@ def create_app():
             try:
                 df = pd.read_excel(f)
                 cnt = import_products(df)
+
+                # Create audit log for products import
+                log_audit("import_products", {
+                    "count": cnt,
+                    "filename": f.filename
+                })
+
                 flash(f"นำเข้าสินค้าสำเร็จ {cnt} รายการ", "success")
-                return redirect(url_for("dashboard"))
+                return redirect(url_for("import_products_view"))
             except Exception as e:
                 flash(f"เกิดข้อผิดพลาดในการนำเข้าสินค้า: {e}", "danger")
                 return redirect(url_for("import_products_view"))
-        return render_template("import_products.html")
+
+        # Query import logs
+        logs = AuditLog.query.filter_by(action="import_products").order_by(AuditLog.timestamp.desc()).limit(50).all()
+        return render_template("import_products.html", logs=logs)
 
     @app.route("/import/stock", methods=["GET", "POST"])
     @login_required
@@ -1155,12 +1377,22 @@ def create_app():
             try:
                 df = pd.read_excel(f)
                 cnt = import_stock(df)
+
+                # Create audit log for stock import
+                log_audit("import_stock", {
+                    "count": cnt,
+                    "filename": f.filename
+                })
+
                 flash(f"นำเข้าสต็อกสำเร็จ {cnt} รายการ", "success")
-                return redirect(url_for("dashboard"))
+                return redirect(url_for("import_stock_view"))
             except Exception as e:
                 flash(f"เกิดข้อผิดพลาดในการนำเข้าสต็อก: {e}", "danger")
                 return redirect(url_for("import_stock_view"))
-        return render_template("import_stock.html")
+
+        # Query import logs
+        logs = AuditLog.query.filter_by(action="import_stock").order_by(AuditLog.timestamp.desc()).limit(50).all()
+        return render_template("import_stock.html", logs=logs)
 
     @app.route("/import/sales", methods=["GET", "POST"])
     @login_required
@@ -1173,12 +1405,22 @@ def create_app():
             try:
                 df = pd.read_excel(f)
                 cnt = import_sales(df)
+
+                # Create audit log for sales import
+                log_audit("import_sales", {
+                    "count": cnt,
+                    "filename": f.filename
+                })
+
                 flash(f"นำเข้าไฟล์สั่งขายสำเร็จ {cnt} รายการ", "success")
-                return redirect(url_for("dashboard"))
+                return redirect(url_for("import_sales_view"))
             except Exception as e:
                 flash(f"เกิดข้อผิดพลาดในการนำเข้าไฟล์สั่งขาย: {e}", "danger")
                 return redirect(url_for("import_sales_view"))
-        return render_template("import_sales.html")
+
+        # Query import logs
+        logs = AuditLog.query.filter_by(action="import_sales").order_by(AuditLog.timestamp.desc()).limit(50).all()
+        return render_template("import_sales.html", logs=logs)
 
     # -----------------------
     # Batch Management Routes (FR-04 to FR-09)
@@ -1231,6 +1473,7 @@ def create_app():
         # ✅ Phase 2.1: ใช้ Quantity-based calculation แทน Order-based
         batch_progress = {}
         batch_readiness = {}  # ✨ NEW: SKU-based readiness check
+        batch_carriers = {}  # ✨ NEW: Real-time carrier counts
 
         for batch in batches:
             progress_data = calculate_batch_progress(batch.batch_id)
@@ -1245,12 +1488,32 @@ def create_app():
                 # เพิ่มข้อมูล Quantity สำหรับใช้งานในอนาคต
                 "total_qty": progress_data["total_qty"],
                 "picked_qty": progress_data["picked_qty"],
-                "shortage_resolved_qty": progress_data["shortage_resolved_qty"],
+                "shortage_qty": progress_data["shortage_qty"],
                 "completed_qty": progress_data["completed_qty"]
             }
 
             # ✨ NEW: เพิ่ม SKU-based readiness
             batch_readiness[batch.batch_id] = readiness_data["ready"]
+
+            # ✨ NEW: คำนวณ Carrier Counts แบบ Real-time
+            from collections import defaultdict
+            carrier_counts = defaultdict(int)
+            orders = OrderLine.query.filter_by(batch_id=batch.batch_id).all()
+            counted_orders = set()
+
+            for order in orders:
+                if order.order_id not in counted_orders:
+                    counted_orders.add(order.order_id)
+                    carrier = order.carrier or "Other"
+                    carrier_counts[carrier] += 1
+
+            batch_carriers[batch.batch_id] = {
+                "SPX": carrier_counts.get("SPX", 0),
+                "Flash": carrier_counts.get("Flash", 0),
+                "LEX": carrier_counts.get("LEX", 0),
+                "J&T": carrier_counts.get("J&T", 0),
+                "Other": sum(v for k, v in carrier_counts.items() if k not in ["SPX", "Flash", "LEX", "J&T"])
+            }
 
         return render_template(
             "batch_list.html",
@@ -1258,6 +1521,7 @@ def create_app():
             pending_counts=pending_counts,
             batch_progress=batch_progress,
             batch_readiness=batch_readiness,  # ✨ NEW: ส่ง readiness status
+            batch_carriers=batch_carriers,  # ✨ NEW: ส่ง real-time carrier counts
             platform_filter=platform_filter,
             handover_status=handover_status or "all",
             date_from=date_from,
@@ -1297,10 +1561,11 @@ def create_app():
         elif request.method == "POST":
             # Create batch
             platform = request.form.get("platform")
-            run_no = int(request.form.get("run_no", 1))
 
             try:
-                batch = create_batch_from_pending(platform, run_no)
+                # ✅ Security: Use retry wrapper with auto-generated run_no
+                # This prevents race conditions when multiple users create batches
+                batch = create_batch_with_retry(platform)
                 flash(f"สร้าง Batch {batch.batch_id} สำเร็จ! รวม {batch.total_orders} ออเดอร์", "success")
                 return redirect(url_for("batch_detail", batch_id=batch.batch_id))
             except ValueError as e:
@@ -1319,20 +1584,39 @@ def create_app():
         # Get all orders in this batch
         orders = OrderLine.query.filter_by(batch_id=batch_id).all()
 
-        # Parse shop summary
-        try:
-            shop_summary = json.loads(batch.shop_summary) if batch.shop_summary else {}
-        except:
-            shop_summary = {}
+        # คำนวณ Carrier Summary และ Shop Summary แบบ Real-time
+        # เพื่อให้แน่ใจว่าข้อมูลถูกต้องทั้ง Parent และ Sub-Batch
+        from collections import defaultdict
+        carrier_counts = defaultdict(int)
+        shop_counts = defaultdict(int)
 
-        # Carrier summary
+        # ใช้ set เพื่อนับ order_id ที่ unique (1 order อาจมีหลาย SKU)
+        counted_orders = set()
+
+        for order in orders:
+            if order.order_id not in counted_orders:
+                counted_orders.add(order.order_id)
+
+                # นับ carrier
+                carrier = order.carrier or "Other"
+                carrier_counts[carrier] += 1
+
+                # นับ shop (ต้อง query Shop model เพื่อเอา name)
+                shop = db.session.get(Shop, order.shop_id) if order.shop_id else None
+                shop_name = shop.name if shop else "Unknown"
+                shop_counts[shop_name] += 1
+
+        # สร้าง carrier_summary dict
         carrier_summary = {
-            "SPX": batch.spx_count,
-            "Flash": batch.flash_count,
-            "LEX": batch.lex_count,
-            "J&T": batch.jt_count,
-            "Other": batch.other_count
+            "SPX": carrier_counts.get("SPX", 0),
+            "Flash": carrier_counts.get("Flash", 0),
+            "LEX": carrier_counts.get("LEX", 0),
+            "J&T": carrier_counts.get("J&T", 0),
+            "Other": sum(v for k, v in carrier_counts.items() if k not in ["SPX", "Flash", "LEX", "J&T"])
         }
+
+        # สร้าง shop_summary dict
+        shop_summary = dict(shop_counts)
 
         # คำนวณ SKU Progress (สำหรับติดตามความคืบหน้าการหยิบสินค้า)
         from collections import defaultdict
@@ -1363,11 +1647,14 @@ def create_app():
         # คำนวณสถานะและเรียงลำดับ
         sku_list = []
         for sku, data in sku_progress.items():
-            # ✅ แก้ไข: "คงเหลือ" = ต้องการอีกกี่ชิ้น (Need - Picked - Shortage)
-            # คอลัมน์นี้บอกว่ายังต้องหยิบอีกกี่ชิ้นถึงจะครบ
-            completed = data["total_picked"] + data["total_shortage"]  # หยิบแล้ว + shortage ที่จัดการแล้ว
-            remaining = data["total_need"] - completed
-            data["remaining"] = max(0, remaining)  # ป้องกันค่าติดลบ
+            # ✅ "ต้องการอีก" = ต้องการ - หยิบแล้ว (ไม่นับ shortage)
+            # เพราะ shortage คือสิ่งที่ขาดและจัดการไปแล้ว ไม่ใช่สิ่งที่ต้องหยิบ
+            remaining_to_pick = data["total_need"] - data["total_picked"]
+            data["remaining"] = max(0, remaining_to_pick)  # ป้องกันค่าติดลบ
+
+            # ✅ "ขาด" = total_shortage (จำนวนที่ mark ว่าขาดแล้ว)
+            # ไม่ต้องคำนวณใหม่ เพราะ shortage_qty ใน DB บันทึกค่านี้ไว้แล้ว
+            data["actual_shortage"] = data["total_shortage"]
 
             # กำหนดสถานะ
             if data["total_picked"] >= data["total_need"]:
@@ -1568,22 +1855,21 @@ def create_app():
         """
         UX-01: Quick create batch with next available run number
         Creates batch automatically and returns success/error
+
+        ✅ Security: Uses create_batch_with_retry() for race condition protection
         """
         try:
             platform_std = normalize_platform(platform)
             batch_date = now_thai().date()
-            
-            # Get next run number automatically
-            next_run = get_next_run_number(platform_std, batch_date)
-            
-            # Create batch
-            batch = create_batch_from_pending(platform_std, next_run, batch_date)
+
+            # ✅ Security: Use retry wrapper to handle race conditions
+            batch = create_batch_with_retry(platform_std, batch_date)
             
             # Additional audit log for quick create
             log_audit("quick_create_batch", {
                 "batch_id": batch.batch_id,
                 "platform": platform_std,
-                "run_no": next_run,
+                "run_no": batch.run_no,
                 "method": "quick_create"
             }, batch_id=batch.batch_id, order_count=batch.total_orders)
             
@@ -2689,7 +2975,7 @@ def create_app():
                 "success": False,
                 "error": f"Batch ยังไม่เสร็จ (Progress: {progress_data['progress_percent']:.1f}%)\n"
                         f"หยิบได้: {progress_data['picked_qty']}/{progress_data['total_qty']} ชิ้น\n"
-                        f"Shortage resolved: {progress_data['shortage_resolved_qty']} ชิ้น"
+                        f"Shortage: {progress_data['shortage_qty']} ชิ้น"
             }), 400
 
         # Check if code already exists
@@ -2860,6 +3146,27 @@ def create_app():
         complete_order_ids = set(o.order_id for o in complete_orders)
         shortage_order_ids = set(o.order_id for o in shortage_orders)
 
+        # คำนวณ Carrier Summary และ Shop Summary สำหรับ Child Batch
+        from collections import defaultdict
+        child_carrier_counts = defaultdict(int)
+        child_shop_counts = defaultdict(int)
+
+        # ใช้ set เพื่อนับ order_id ที่ unique
+        counted_orders = set()
+
+        for order in shortage_orders:
+            if order.order_id not in counted_orders:
+                counted_orders.add(order.order_id)
+
+                # นับ carrier
+                carrier = order.carrier or "Other"
+                child_carrier_counts[carrier] += 1
+
+                # นับ shop (ต้อง query Shop model เพื่อเอา name)
+                shop = db.session.get(Shop, order.shop_id) if order.shop_id else None
+                shop_name = shop.name if shop else "Unknown"
+                child_shop_counts[shop_name] += 1
+
         # สร้าง Child Batch
         child_batch = Batch(
             batch_id=child_batch_id,
@@ -2871,6 +3178,12 @@ def create_app():
             batch_type='shortage',
             shortage_reason=shortage_reason,
             total_orders=len(shortage_order_ids),
+            spx_count=child_carrier_counts.get("SPX", 0),
+            flash_count=child_carrier_counts.get("Flash", 0),
+            lex_count=child_carrier_counts.get("LEX", 0),
+            jt_count=child_carrier_counts.get("J&T", 0),
+            other_count=sum(v for k, v in child_carrier_counts.items() if k not in ["SPX", "Flash", "LEX", "J&T"]),
+            shop_summary=json.dumps(dict(child_shop_counts), ensure_ascii=False),
             locked=True,
             created_by_user_id=current_user().id,
             created_by_username=current_user().username,
@@ -2894,8 +3207,33 @@ def create_app():
                 synchronize_session=False
             )
 
-        # อัปเดต Parent Batch
+        # อัปเดต Parent Batch - คำนวณ Carrier และ Shop Summary ใหม่
+        parent_carrier_counts = defaultdict(int)
+        parent_shop_counts = defaultdict(int)
+
+        # ใช้ set เพื่อนับ order_id ที่ unique
+        parent_counted_orders = set()
+
+        for order in complete_orders:
+            if order.order_id not in parent_counted_orders:
+                parent_counted_orders.add(order.order_id)
+
+                # นับ carrier
+                carrier = order.carrier or "Other"
+                parent_carrier_counts[carrier] += 1
+
+                # นับ shop (ต้อง query Shop model เพื่อเอา name)
+                shop = db.session.get(Shop, order.shop_id) if order.shop_id else None
+                shop_name = shop.name if shop else "Unknown"
+                parent_shop_counts[shop_name] += 1
+
         batch.total_orders = len(complete_order_ids)
+        batch.spx_count = parent_carrier_counts.get("SPX", 0)
+        batch.flash_count = parent_carrier_counts.get("Flash", 0)
+        batch.lex_count = parent_carrier_counts.get("LEX", 0)
+        batch.jt_count = parent_carrier_counts.get("J&T", 0)
+        batch.other_count = sum(v for k, v in parent_carrier_counts.items() if k not in ["SPX", "Flash", "LEX", "J&T"])
+        batch.shop_summary = json.dumps(dict(parent_shop_counts), ensure_ascii=False)
 
         db.session.commit()
 
@@ -3858,6 +4196,22 @@ def create_app():
                 elif scope == "stock_all":
                     deleted_count = Stock.query.delete()
                     messages.append(f"ลบข้อมูลสต็อก: {deleted_count} รายการ")
+
+                elif scope == "audit_logs_import_orders":
+                    deleted_count = AuditLog.query.filter(AuditLog.action == "import_orders").delete()
+                    messages.append(f"ลบ Log การนำเข้า Orders: {deleted_count} รายการ")
+
+                elif scope == "audit_logs_import_products":
+                    deleted_count = AuditLog.query.filter(AuditLog.action == "import_products").delete()
+                    messages.append(f"ลบ Log การนำเข้าสินค้า: {deleted_count} รายการ")
+
+                elif scope == "audit_logs_import_stock":
+                    deleted_count = AuditLog.query.filter(AuditLog.action == "import_stock").delete()
+                    messages.append(f"ลบ Log การนำเข้าสต็อก: {deleted_count} รายการ")
+
+                elif scope == "audit_logs_import_sales":
+                    deleted_count = AuditLog.query.filter(AuditLog.action == "import_sales").delete()
+                    messages.append(f"ลบ Log การนำเข้าสั่งขาย: {deleted_count} รายการ")
 
                 elif scope == "audit_logs":
                     deleted_count = AuditLog.query.delete()

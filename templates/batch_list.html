@@ -151,20 +151,21 @@
               <span class="fs-4 fw-bold text-primary">{{ batch.total_orders }}</span>
             </td>
             <td class="text-center d-none d-lg-table-cell">
-              {% if batch.spx_count > 0 %}
-                <span class="badge bg-danger">SPX: {{ batch.spx_count }}</span>
+              {% set carriers = batch_carriers.get(batch.batch_id, {}) %}
+              {% if carriers.get('SPX', 0) > 0 %}
+                <span class="badge bg-danger">SPX: {{ carriers.get('SPX', 0) }}</span>
               {% endif %}
-              {% if batch.flash_count > 0 %}
-                <span class="badge bg-warning text-dark">Flash: {{ batch.flash_count }}</span>
+              {% if carriers.get('Flash', 0) > 0 %}
+                <span class="badge bg-warning text-dark">Flash: {{ carriers.get('Flash', 0) }}</span>
               {% endif %}
-              {% if batch.lex_count > 0 %}
-                <span class="badge bg-primary">LEX: {{ batch.lex_count }}</span>
+              {% if carriers.get('LEX', 0) > 0 %}
+                <span class="badge bg-primary">LEX: {{ carriers.get('LEX', 0) }}</span>
               {% endif %}
-              {% if batch.jt_count > 0 %}
-                <span class="badge bg-success">J&T: {{ batch.jt_count }}</span>
+              {% if carriers.get('J&T', 0) > 0 %}
+                <span class="badge bg-success">J&T: {{ carriers.get('J&T', 0) }}</span>
               {% endif %}
-              {% if batch.other_count > 0 %}
-                <span class="badge bg-secondary">Other: {{ batch.other_count }}</span>
+              {% if carriers.get('Other', 0) > 0 %}
+                <span class="badge bg-secondary">Other: {{ carriers.get('Other', 0) }}</span>
               {% endif %}
             </td>
             <td>
