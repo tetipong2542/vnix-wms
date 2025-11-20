@@ -2028,7 +2028,7 @@ def create_app():
             current_sla = sku_progress[order.sku]["earliest_sla"]
             if order.order_time:
                 if current_sla is None or order.order_time < current_sla:
-                    sku_progress[order.sku]["earliest_sla"] = format_sla_thai(order.order_time)
+                    sku_progress[order.sku]["earliest_sla"] = order.order_time
 
         # ✅ FIX: เช็ค Shortage จาก ShortageQueue Records เพื่อความแม่นยำ
         # เพราะ shortage_qty field อาจไม่ได้อัปเดตทันที
@@ -2078,6 +2078,10 @@ def create_app():
                 data["status"] = "pending"
                 data["status_badge"] = "secondary"
                 data["status_text"] = "รอหยิบ"
+
+            # ✅ Format earliest_sla for display
+            if data["earliest_sla"]:
+                data["earliest_sla"] = format_sla_thai(data["earliest_sla"])
 
             sku_list.append(data)
 
