@@ -62,6 +62,57 @@ def now_thai() -> datetime:
 def current_be_year() -> int:
     return now_thai().year + 543
 
+def format_sla_thai(order_time_str: Optional[str]) -> str:
+    """
+    แปลง order_time เป็นข้อความภาษาไทยแบบสัมพัทธ์
+
+    Examples:
+        - "2025-01-19 18:00" (วันนี้) → "วันนี้ 18:00"
+        - "2025-01-20 12:00" (พรุ่งนี้) → "พรุ่งนี้ 12:00"
+        - "2025-01-21 10:00" (มะรืน) → "มะรืน 10:00"
+        - "2025-01-22 14:00" (อื่นๆ) → "22 ม.ค. 14:00"
+    """
+    if not order_time_str:
+        return ""
+
+    try:
+        # Parse order_time (assume format: "YYYY-MM-DD HH:MM" or similar)
+        if isinstance(order_time_str, str):
+            order_dt = datetime.strptime(order_time_str.strip(), "%Y-%m-%d %H:%M")
+        elif isinstance(order_time_str, datetime):
+            order_dt = order_time_str
+        else:
+            return order_time_str
+
+        # Get current date (Thai timezone)
+        now = now_thai()
+        today = now.date()
+        order_date = order_dt.date()
+        time_str = order_dt.strftime("%H:%M")
+
+        # คำนวณความต่าง
+        delta = (order_date - today).days
+
+        if delta == 0:
+            return f"วันนี้ {time_str}"
+        elif delta == 1:
+            return f"พรุ่งนี้ {time_str}"
+        elif delta == 2:
+            return f"มะรืน {time_str}"
+        else:
+            # แสดงวันที่แบบสั้น (เช่น "19 ม.ค. 18:00")
+            month_names_short = [
+                "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+                "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."
+            ]
+            day = order_dt.day
+            month = month_names_short[order_dt.month - 1]
+            return f"{day} {month} {time_str}"
+
+    except Exception as e:
+        # ถ้า parse ไม่ได้ ให้คืนค่าเดิม
+        return order_time_str
+
 def to_thai_be(dt: Optional[datetime]) -> str:
     if not dt:
         return ""

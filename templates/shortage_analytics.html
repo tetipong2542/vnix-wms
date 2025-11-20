@@ -1,0 +1,718 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+  /* ✅ Compact card styling for better screen fit */
+  .card-body {
+    padding: 1rem;
+  }
+  .card-header h5 {
+    font-size: 1rem;
+  }
+  /* Compact summary cards */
+  .card-body.text-center h3 {
+    font-size: 1.75rem;
+    margin-bottom: 0.25rem;
+  }
+  .card-body.text-center .text-muted {
+    font-size: 0.85rem;
+  }
+  /* Ensure charts fit properly */
+  canvas {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+  /* Responsive table */
+  .table-responsive {
+    max-height: 400px;
+    overflow-y: auto;
+  }
+</style>
+
+<div class="container-fluid">
+  <!-- Header -->
+  <div class="row mb-4">
+    <div class="col-12">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <h2 class="mb-1">
+            <i data-lucide="bar-chart-2"></i> Shortage Analytics Dashboard
+          </h2>
+          <p class="text-muted">
+            Root Cause Analysis & Shortage Trends
+            <span class="badge bg-info ms-2">{{ days_range }} วันล่าสุด</span>
+          </p>
+        </div>
+        <div class="d-flex gap-2">
+          <!-- Date Range Selector -->
+          <div class="btn-group" role="group">
+            <a href="{{ url_for('shortage_analytics', days=7) }}" class="btn btn-sm {{ 'btn-primary' if days_range == 7 else 'btn-outline-primary' }}">
+              7 วัน
+            </a>
+            <a href="{{ url_for('shortage_analytics', days=30) }}" class="btn btn-sm {{ 'btn-primary' if days_range == 30 else 'btn-outline-primary' }}">
+              30 วัน
+            </a>
+            <a href="{{ url_for('shortage_analytics', days=90) }}" class="btn btn-sm {{ 'btn-primary' if days_range == 90 else 'btn-outline-primary' }}">
+              90 วัน
+            </a>
+          </div>
+
+          <a href="{{ url_for('shortage_queue') }}" class="btn btn-outline-secondary btn-sm">
+            <i data-lucide="list"></i> Shortage Queue
+          </a>
+          <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary btn-sm">
+            <i data-lucide="home"></i> Dashboard
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ✅ Priority 2.4: Empty State Handling -->
+  {% if not empty_state %}
+  <!-- Summary Cards Row 1: Pre-pick vs Post-pick -->
+  <div class="row mb-4">
+    <!-- Total Shortages -->
+    <div class="col-md-3">
+      <div class="card border-primary">
+        <div class="card-body text-center">
+          <i data-lucide="alert-triangle" class="text-primary mb-2" style="width: 32px; height: 32px;"></i>
+          <h3 class="mb-1 text-primary">{{ total_shortages }}</h3>
+          <p class="text-muted mb-0 small">Total Shortages</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pre-pick Shortages -->
+    <div class="col-md-3">
+      <div class="card border-danger">
+        <div class="card-body text-center">
+          <i data-lucide="package-x" class="text-danger mb-2" style="width: 32px; height: 32px;"></i>
+          <h3 class="mb-1 text-danger">{{ pre_pick_count }}</h3>
+          <p class="text-muted mb-0 small">
+            Pre-pick Shortages
+            {% if total_shortages > 0 %}
+              <span class="badge bg-danger">{{ (pre_pick_count / total_shortages * 100) | round(1) }}%</span>
+            {% endif %}
+          </p>
+          <small class="text-muted">Inventory Problem ({{ pre_pick_qty }} ชิ้น)</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Post-pick Shortages -->
+    <div class="col-md-3">
+      <div class="card border-warning">
+        <div class="card-body text-center">
+          <i data-lucide="search-x" class="text-warning mb-2" style="width: 32px; height: 32px;"></i>
+          <h3 class="mb-1 text-warning">{{ post_pick_count }}</h3>
+          <p class="text-muted mb-0 small">
+            Post-pick Shortages
+            {% if total_shortages > 0 %}
+              <span class="badge bg-warning">{{ (post_pick_count / total_shortages * 100) | round(1) }}%</span>
+            {% endif %}
+          </p>
+          <small class="text-muted">Operations Problem ({{ post_pick_qty }} ชิ้น)</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- No Type Specified -->
+    <div class="col-md-3">
+      <div class="card border-secondary">
+        <div class="card-body text-center">
+          <i data-lucide="help-circle" class="text-secondary mb-2" style="width: 32px; height: 32px;"></i>
+          <h3 class="mb-1 text-secondary">{{ no_type_count }}</h3>
+          <p class="text-muted mb-0 small">
+            No Type Specified
+            {% if total_shortages > 0 %}
+              <span class="badge bg-secondary">{{ (no_type_count / total_shortages * 100) | round(1) }}%</span>
+            {% endif %}
+          </p>
+          <small class="text-muted">Needs Classification</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts Row -->
+  <div class="row mb-3">
+    <!-- Pre-pick vs Post-pick Pie Chart -->
+    <div class="col-md-6">
+      <div class="card h-100">
+        <div class="card-header bg-primary text-white">
+          <h5 class="mb-0">
+            <i data-lucide="pie-chart"></i> Pre-pick vs Post-pick Breakdown
+          </h5>
+        </div>
+        <div class="card-body">
+          <div style="position: relative; height: 250px; max-height: 250px;">
+            <canvas id="typeBreakdownChart"></canvas>
+          </div>
+          <div class="mt-3 text-center">
+            <p class="text-muted small mb-1">
+              <i data-lucide="info"></i> Root Cause Classification
+            </p>
+            <div class="row">
+              <div class="col-6">
+                <strong class="text-danger">Pre-pick:</strong> ปัญหาสต็อก/การจัดซื้อ
+              </div>
+              <div class="col-6">
+                <strong class="text-warning">Post-pick:</strong> ปัญหาคลัง/การหยิบของ
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reason Code Bar Chart -->
+    <div class="col-md-6">
+      <div class="card h-100">
+        <div class="card-header bg-warning text-dark">
+          <h5 class="mb-0">
+            <i data-lucide="bar-chart"></i> Shortage by Reason Code
+          </h5>
+        </div>
+        <div class="card-body">
+          <div style="position: relative; height: 250px; max-height: 250px;">
+            <canvas id="reasonBreakdownChart"></canvas>
+          </div>
+          <div class="mt-3">
+            <p class="text-muted small mb-0 text-center">
+              <i data-lucide="target"></i> ใช้ข้อมูลนี้ระบุจุดที่ต้องปรับปรุง
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top SKUs Table -->
+  <div class="row mb-3">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header bg-danger text-white">
+          <h5 class="mb-0">
+            <i data-lucide="trending-down"></i> Top 10 SKUs with Most Shortages
+          </h5>
+        </div>
+        <div class="card-body">
+          {% if top_skus %}
+            <div class="table-responsive">
+              <table class="table table-hover table-sm">
+                <thead class="table-light">
+                  <tr>
+                    <th width="5%">#</th>
+                    <th width="15%">SKU</th>
+                    <th width="40%">Product Name</th>
+                    <th width="20%" class="text-center">Shortage Count</th>
+                    <th width="20%" class="text-center">Total Shortage Qty</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for item in top_skus %}
+                    <tr>
+                      <td class="text-center">{{ loop.index }}</td>
+                      <td>
+                        <code class="small">{{ item.sku }}</code>
+                      </td>
+                      <td>{{ item.product_name }}</td>
+                      <td class="text-center">
+                        <span class="badge bg-danger">{{ item.shortage_count }} ครั้ง</span>
+                      </td>
+                      <td class="text-center">
+                        <strong class="text-danger">{{ item.total_shortage_qty }} ชิ้น</strong>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="alert alert-info mb-0">
+              <i data-lucide="info"></i> ไม่มีข้อมูล Shortage ในช่วงเวลานี้
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Daily Trend Line Chart -->
+  <div class="row mb-3">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header bg-info text-white">
+          <h5 class="mb-0">
+            <i data-lucide="trending-up"></i> Daily Shortage Trend ({{ days_range }} Days)
+          </h5>
+        </div>
+        <div class="card-body">
+          <div style="position: relative; height: 200px; max-height: 200px;">
+            <canvas id="dailyTrendChart"></canvas>
+          </div>
+          <div class="mt-3">
+            <p class="text-muted small mb-0 text-center">
+              <i data-lucide="calendar"></i> ช่วงเวลา: {{ start_date.strftime('%d/%m/%Y') }} - {{ end_date.strftime('%d/%m/%Y') }}
+              (พ.ศ. {{ start_date.year + 543 }})
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status Summary -->
+  <div class="row mb-3">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header bg-secondary text-white">
+          <h5 class="mb-0">
+            <i data-lucide="check-square"></i> Shortage Status Summary
+          </h5>
+        </div>
+        <div class="card-body">
+          <div class="row text-center">
+            <div class="col">
+              <h4 class="text-warning">{{ status_counts.get('pending', 0) }}</h4>
+              <p class="text-muted mb-0 small">Pending</p>
+            </div>
+            <div class="col">
+              <h4 class="text-info">{{ status_counts.get('waiting_stock', 0) }}</h4>
+              <p class="text-muted mb-0 small">Waiting Stock</p>
+            </div>
+            <div class="col">
+              <h4 class="text-success">{{ status_counts.get('resolved', 0) }}</h4>
+              <p class="text-muted mb-0 small">Resolved</p>
+            </div>
+            <div class="col">
+              <h4 class="text-primary">{{ status_counts.get('replaced', 0) }}</h4>
+              <p class="text-muted mb-0 small">Replaced</p>
+            </div>
+            <div class="col">
+              <h4 class="text-secondary">{{ status_counts.get('cancelled', 0) }}</h4>
+              <p class="text-muted mb-0 small">Cancelled</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Shortage Logs Table -->
+  <div class="row mb-3">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header bg-dark text-white">
+          <h5 class="mb-0">
+            <i data-lucide="list"></i> Recent Shortage Logs (Latest 20)
+          </h5>
+        </div>
+        <div class="card-body p-0">
+          {% if shortage_logs %}
+          <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th style="width: 10%;">Date</th>
+                  <th style="width: 15%;">Order ID</th>
+                  <th style="width: 12%;">SKU</th>
+                  <th style="width: 8%;" class="text-center">Qty</th>
+                  <th style="width: 25%;">Reason</th>
+                  <th style="width: 10%;" class="text-center">Type</th>
+                  <th style="width: 10%;" class="text-center">Status</th>
+                  <th style="width: 10%;">Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for log in shortage_logs %}
+                <tr>
+                  <td>{{ log.created_at.strftime('%d/%m/%Y') }}</td>
+                  <td>
+                    <small>{{ log.order_id }}</small>
+                  </td>
+                  <td>
+                    <code class="small">{{ log.sku }}</code>
+                  </td>
+                  <td class="text-center">
+                    <span class="badge bg-danger">{{ log.qty_shortage }}</span>
+                  </td>
+                  <td>
+                    <small>{{ reason_labels.get(log.shortage_reason, log.shortage_reason or '-') }}</small>
+                  </td>
+                  <td class="text-center">
+                    {% if log.shortage_type == 'PRE_PICK' %}
+                      <span class="badge bg-danger small">PRE-PICK</span>
+                    {% elif log.shortage_type == 'POST_PICK' %}
+                      <span class="badge bg-warning text-dark small">POST-PICK</span>
+                    {% else %}
+                      <span class="badge bg-secondary small">{{ log.shortage_type or '-' }}</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-center">
+                    {% if log.status == 'pending' %}
+                      <span class="badge bg-warning text-dark small">Pending</span>
+                    {% elif log.status == 'waiting_stock' %}
+                      <span class="badge bg-info small">Waiting</span>
+                    {% elif log.status == 'resolved' %}
+                      <span class="badge bg-success small">Resolved</span>
+                    {% elif log.status == 'replaced' %}
+                      <span class="badge bg-primary small">Replaced</span>
+                    {% elif log.status == 'cancelled' %}
+                      <span class="badge bg-secondary small">Cancelled</span>
+                    {% else %}
+                      <span class="badge bg-secondary small">{{ log.status }}</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if log.notes %}
+                      <small class="text-muted">{{ log.notes[:30] }}{% if log.notes|length > 30 %}...{% endif %}</small>
+                    {% else %}
+                      <small class="text-muted">-</small>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          <div class="card-body text-center text-muted py-5">
+            <i data-lucide="inbox" style="width: 48px; height: 48px; opacity: 0.3;"></i>
+            <p class="mb-0 mt-3">No shortage logs found for the selected period</p>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Key Insights -->
+  <div class="row mb-3">
+    <div class="col-12">
+      <div class="card border-info">
+        <div class="card-header bg-info text-white">
+          <h5 class="mb-0">
+            <i data-lucide="lightbulb"></i> Key Insights & Action Items
+          </h5>
+        </div>
+        <div class="card-body">
+          <div class="row">
+            <div class="col-md-6">
+              <h6 class="text-danger">
+                <i data-lucide="package-x"></i> Pre-pick Issues (Inventory/Purchasing)
+              </h6>
+              <ul class="small">
+                <li>Review stock levels and reorder points for top shortage SKUs</li>
+                <li>Improve demand forecasting accuracy</li>
+                <li>Review supplier reliability and lead times</li>
+                <li>Consider safety stock adjustments</li>
+              </ul>
+            </div>
+            <div class="col-md-6">
+              <h6 class="text-warning">
+                <i data-lucide="search-x"></i> Post-pick Issues (Operations)
+              </h6>
+              <ul class="small">
+                <li><strong>หาไม่เจอ:</strong> Improve warehouse layout & picker training</li>
+                <li><strong>ของชำรุด:</strong> Enhance QC inspection process</li>
+                <li><strong>วางผิดที่:</strong> Fix put-away processes & location accuracy</li>
+                <li><strong>บาร์โค้ดหลุด:</strong> Use better label materials</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% else %}
+  <!-- Empty State Message -->
+  <div class="row">
+    <div class="col-12">
+      <div class="alert alert-info text-center py-5">
+        <i data-lucide="smile" style="width: 64px; height: 64px;" class="mb-3"></i>
+        <h3 class="mt-3">ไม่มีข้อมูล Shortage</h3>
+        <p class="text-muted mb-4">
+          ไม่พบรายการสินค้าขาดในช่วง {{ days_range }} วันที่ผ่านมา
+          <br>
+          <small>({{ start_date.strftime('%d/%m/%Y') }} - {{ end_date.strftime('%d/%m/%Y') }})</small>
+        </p>
+
+        <div class="alert alert-success d-inline-block mb-4">
+          <h5 class="mb-2">💡 นี่คือสัญญาณที่ดี!</h5>
+          <p class="mb-0 text-start">ไม่มีรายการสินค้าขาดในช่วงเวลานี้แสดงว่า:</p>
+          <ul class="text-start mt-2 mb-0">
+            <li>สต็อกเพียงพอสำหรับการจัดส่ง</li>
+            <li>กระบวนการหยิบของทำงานได้ดี</li>
+            <li>การจัดการสต็อกมีประสิทธิภาพ</li>
+          </ul>
+        </div>
+
+        <div class="mt-4">
+          <a href="{{ url_for('shortage_queue') }}" class="btn btn-secondary me-2">
+            <i data-lucide="list" style="width: 16px; height: 16px;"></i> ดู Shortage Queue
+          </a>
+          <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
+            <i data-lucide="home" style="width: 16px; height: 16px;"></i> กลับหน้าหลัก
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Chart.js Library -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<script>
+// Initialize Lucide icons after page load
+document.addEventListener('DOMContentLoaded', function() {
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons();
+  }
+
+  // ========== 1. Pre-pick vs Post-pick Pie Chart ==========
+  const typeCtx = document.getElementById('typeBreakdownChart').getContext('2d');
+  new Chart(typeCtx, {
+    type: 'pie',
+    data: {
+      labels: [
+        'Pre-pick ({{ pre_pick_count }})',
+        'Post-pick ({{ post_pick_count }})',
+        'No Type ({{ no_type_count }})'
+      ],
+      datasets: [{
+        data: [{{ pre_pick_count }}, {{ post_pick_count }}, {{ no_type_count }}],
+        backgroundColor: [
+          'rgba(220, 53, 69, 0.8)',    // Red for Pre-pick
+          'rgba(255, 193, 7, 0.8)',    // Yellow for Post-pick
+          'rgba(108, 117, 125, 0.8)'   // Gray for No Type
+        ],
+        borderColor: [
+          'rgba(220, 53, 69, 1)',
+          'rgba(255, 193, 7, 1)',
+          'rgba(108, 117, 125, 1)'
+        ],
+        borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            font: {
+              size: 13,
+              family: "'IBM Plex Sans Thai', sans-serif"
+            },
+            padding: 15
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const label = context.label || '';
+              const value = context.parsed || 0;
+              const total = context.dataset.data.reduce((a, b) => a + b, 0);
+              const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+              return `${label}: ${percentage}%`;
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // ========== 2. Reason Code Bar Chart ==========
+  const reasonCtx = document.getElementById('reasonBreakdownChart').getContext('2d');
+
+  const reasonData = [
+    {% for row in reason_breakdown %}
+      {
+        label: '{{ reason_labels.get(row.shortage_reason, row.shortage_reason or "ไม่ระบุ") }}',
+        count: {{ row.count }},
+        qty: {{ row.total_qty or 0 }}
+      }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ];
+
+  new Chart(reasonCtx, {
+    type: 'bar',
+    data: {
+      labels: reasonData.map(r => r.label),
+      datasets: [{
+        label: 'จำนวนครั้ง',
+        data: reasonData.map(r => r.count),
+        backgroundColor: 'rgba(255, 193, 7, 0.7)',
+        borderColor: 'rgba(255, 193, 7, 1)',
+        borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: 'y',  // Horizontal bar chart
+      plugins: {
+        legend: {
+          display: false
+        },
+        tooltip: {
+          callbacks: {
+            afterLabel: function(context) {
+              const index = context.dataIndex;
+              return `ปริมาณ: ${reasonData[index].qty} ชิ้น`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          beginAtZero: true,
+          ticks: {
+            stepSize: 1,
+            font: {
+              family: "'IBM Plex Sans Thai', sans-serif"
+            }
+          }
+        },
+        y: {
+          ticks: {
+            font: {
+              size: 12,
+              family: "'IBM Plex Sans Thai', sans-serif"
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // ========== 3. Daily Trend Line Chart ==========
+  const trendCtx = document.getElementById('dailyTrendChart').getContext('2d');
+
+  const trendData = [
+    {% for day in trend_data %}
+      {
+        date: '{{ day.date }}',
+        dateThai: '{{ day.date_thai }}',
+        count: {{ day.count }},
+        qty: {{ day.qty }}
+      }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ];
+
+  new Chart(trendCtx, {
+    type: 'line',
+    data: {
+      labels: trendData.map(d => d.dateThai),
+      datasets: [
+        {
+          label: 'จำนวนครั้ง',
+          data: trendData.map(d => d.count),
+          borderColor: 'rgba(13, 110, 253, 1)',
+          backgroundColor: 'rgba(13, 110, 253, 0.1)',
+          borderWidth: 2,
+          fill: true,
+          tension: 0.3,
+          yAxisID: 'y'
+        },
+        {
+          label: 'ปริมาณ (ชิ้น)',
+          data: trendData.map(d => d.qty),
+          borderColor: 'rgba(255, 193, 7, 1)',
+          backgroundColor: 'rgba(255, 193, 7, 0.1)',
+          borderWidth: 2,
+          fill: true,
+          tension: 0.3,
+          yAxisID: 'y1'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: {
+        mode: 'index',
+        intersect: false
+      },
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: {
+            font: {
+              size: 13,
+              family: "'IBM Plex Sans Thai', sans-serif"
+            }
+          }
+        },
+        tooltip: {
+          callbacks: {
+            title: function(context) {
+              const index = context[0].dataIndex;
+              return `วันที่: ${trendData[index].dateThai}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: {
+            maxRotation: 45,
+            minRotation: 45,
+            font: {
+              size: 10,
+              family: "'IBM Plex Sans Thai', sans-serif"
+            }
+          }
+        },
+        y: {
+          type: 'linear',
+          display: true,
+          position: 'left',
+          beginAtZero: true,
+          ticks: {
+            stepSize: 1,
+            font: {
+              family: "'IBM Plex Sans Thai', sans-serif"
+            }
+          },
+          title: {
+            display: true,
+            text: 'จำนวนครั้ง',
+            font: {
+              family: "'IBM Plex Sans Thai', sans-serif"
+            }
+          }
+        },
+        y1: {
+          type: 'linear',
+          display: true,
+          position: 'right',
+          beginAtZero: true,
+          grid: {
+            drawOnChartArea: false
+          },
+          ticks: {
+            font: {
+              family: "'IBM Plex Sans Thai', sans-serif"
+            }
+          },
+          title: {
+            display: true,
+            text: 'ปริมาณ (ชิ้น)',
+            font: {
+              family: "'IBM Plex Sans Thai', sans-serif"
+            }
+          }
+        }
+      }
+    }
+  });
+});
+</script>
+{% endblock %}

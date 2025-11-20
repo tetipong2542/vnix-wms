@@ -7,8 +7,8 @@ from datetime import datetime, date
 from flask import flash
 from sqlalchemy.exc import IntegrityError
 
-from utils import parse_datetime_guess, normalize_platform, TH_TZ
-from models import db, Shop, Product, Stock, Sales, OrderLine
+from utils import parse_datetime_guess, normalize_platform, TH_TZ, now_thai
+from models import db, Shop, Product, Stock, StockTransaction, Sales, OrderLine, ShortageQueue
 
 # ===== Column dictionaries =====
 COMMON_ORDER_ID   = ["orderNumber","Order Number","order_id","Order ID","order_sn","Order No","เลข Order","No.","OrderNo"]
@@ -141,19 +141,40 @@ def import_stock(df: pd.DataFrame) -> int:
 
     # อัปเดตฐานข้อมูล
     saved = 0
+    updated_skus = []  # เก็บ SKU ที่อัปเดตเพื่อตรวจสอบ Shortage
+
     for _, row in agg.iterrows():
         sku = row["sku"]
         qty = int(row["qty"] or 0)
 
         st = Stock.query.filter_by(sku=sku).first()
+        old_qty = st.qty if st else 0
+
         if not st:
             st = Stock(sku=sku, qty=qty, reserved_qty=0)
             db.session.add(st)
         else:
             st.qty = qty
-            # ✅ Reset reserved_qty when importing fresh stock from POS
-            # This ensures stock numbers sync with POS (source of truth)
-            st.reserved_qty = 0
+            # ✅ FIX: ไม่ reset reserved_qty เมื่อ import stock
+            # เพราะ reserved_qty เป็นการจอง Stock ให้ Batch ที่กำลังทำงานอยู่
+            # การ import stock ใหม่ควรปรับเฉพาะ total stock (qty) เท่านั้น
+            # reserved_qty จะถูกปรับลดเมื่อ Batch dispatch เสร็จแล้ว
+
+        # ✅ Option 2: Log stock transaction (Banking-style)
+        if qty != old_qty:
+            qty_change = qty - old_qty
+            tx = StockTransaction(
+                sku=sku,
+                transaction_type='RECEIVE' if qty_change > 0 else 'ADJUST',
+                quantity=qty_change,
+                balance_after=qty,
+                reason_code='IMPORT',
+                reference_type='import',
+                reference_id=f"IMPORT-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
+                created_by='system',
+                notes=f"Stock import: {old_qty} → {qty}"
+            )
+            db.session.add(tx)
 
         # ถ้ามีฟิลด์ product.stock_qty ให้ sync ด้วย
         prod = Product.query.filter_by(sku=sku).first()
@@ -166,8 +187,269 @@ def import_stock(df: pd.DataFrame) -> int:
 
         saved += 1
 
+        # ✅ NEW: Track all SKU updates (not just increases) for Shortage auto-detection
+        if qty != old_qty:
+            updated_skus.append({'sku': sku, 'old_qty': old_qty, 'new_qty': qty})
+
     db.session.commit()
+
+    # ✅ NEW: Recalculate reserved_qty เมื่อ Import Stock ใหม่
+    # เพื่อให้ reserved_qty สะท้อนความเป็นจริง (เฉพาะ Orders ที่ยังไม่เสร็จ)
+    for _, row in agg.iterrows():
+        sku = row["sku"]
+
+        # คำนวณ reserved_qty จริงจากฐานข้อมูล
+        # reserved_qty = ผลรวม (qty - picked_qty) ของทุก Order ที่ยังไม่ dispatch
+        from models import OrderLine
+        from sqlalchemy import func
+
+        result = db.session.query(
+            func.sum(OrderLine.qty - OrderLine.picked_qty).label('total_reserved')
+        ).filter(
+            OrderLine.sku == sku,
+            OrderLine.dispatch_status != 'dispatched',
+            OrderLine.accepted == True,
+            OrderLine.picked_qty < OrderLine.qty  # ยังหยิบไม่ครบ
+        ).first()
+
+        calculated_reserved = max(0, result.total_reserved or 0)
+
+        # อัปเดต reserved_qty ใน Stock table
+        st = Stock.query.filter_by(sku=sku).first()
+        if st:
+            old_reserved = st.reserved_qty
+            st.reserved_qty = calculated_reserved
+            if old_reserved != calculated_reserved:
+                print(f"✅ Recalculated Reserved: {sku} - Reserved {old_reserved} → {calculated_reserved}")
+
+    db.session.commit()
+
+    # ✅ NEW: Auto-update Shortage Records based on stock availability
+    if updated_skus:
+        now = now_thai()
+        total_updated_shortages = 0
+
+        for sku_data in updated_skus:
+            sku = sku_data['sku']
+            old_qty = sku_data['old_qty']
+            new_qty = sku_data['new_qty']
+
+            # หา Shortage Records ที่ยัง active (pending, waiting_stock)
+            pending_shortages = ShortageQueue.query.filter(
+                ShortageQueue.sku == sku,
+                ShortageQueue.status.in_(['pending', 'waiting_stock'])
+            ).all()
+
+            if pending_shortages:
+                # ✅ FIX: เรียง Shortage Records ตาม SLA (เร็วที่สุดก่อน) เพื่อจัดสรรสต็อกตามลำดับความเร่งด่วน
+                from models import OrderLine
+
+                # Join กับ OrderLine เพื่อดึง order_time (SLA)
+                shortages_with_sla = []
+                for shortage in pending_shortages:
+                    order_line = OrderLine.query.get(shortage.order_line_id)
+                    if order_line:
+                        shortages_with_sla.append({
+                            'shortage': shortage,
+                            'order_time': order_line.order_time or '',
+                            'qty_shortage': shortage.qty_shortage or 0
+                        })
+
+                # เรียงตาม order_time (SLA เร็วที่สุดก่อน)
+                shortages_with_sla.sort(key=lambda x: x['order_time'])
+
+                # คำนวณสต็อกที่มี
+                orders = OrderLine.query.filter(
+                    OrderLine.sku == sku,
+                    OrderLine.dispatch_status != "dispatched",
+                    OrderLine.accepted == True
+                ).all()
+
+                total_picked = sum(o.picked_qty or 0 for o in orders)
+                total_need = sum(o.qty for o in orders)
+                total_remaining = total_need - total_picked
+
+                # จัดสรรสต็อกตามลำดับ SLA
+                available_stock = new_qty
+                updated_count = 0
+                fully_covered_count = 0
+                partial_covered_count = 0
+
+                for item in shortages_with_sla:
+                    shortage = item['shortage']
+                    qty_shortage = item['qty_shortage']
+
+                    if available_stock > 0:
+                        # มีสต็อกเหลือ → เปลี่ยนเป็น ready_to_pick
+                        shortage.status = 'ready_to_pick'
+
+                        # เช็คว่าสต็อกพอครอบคลุม Shortage นี้ครบหรือไม่
+                        if available_stock >= qty_shortage:
+                            # พอครบ
+                            shortage.resolution_notes = (shortage.resolution_notes or "") + f"\n[{now}] สต็อกเข้า ({old_qty} → {new_qty}) - พอหยิบครบ {qty_shortage} ชิ้น [SLA: {item['order_time']}]"
+                            available_stock -= qty_shortage
+                            fully_covered_count += 1
+                        else:
+                            # พอบางส่วน
+                            shortage.resolution_notes = (shortage.resolution_notes or "") + f"\n[{now}] สต็อกเข้า ({old_qty} → {new_qty}) - หยิบได้ {available_stock}/{qty_shortage} ชิ้น [SLA: {item['order_time']}]"
+                            available_stock = 0
+                            partial_covered_count += 1
+
+                        updated_count += 1
+                    else:
+                        # สต็อกหมดแล้ว → ไม่เปลี่ยนสถานะ
+                        break
+
+                total_updated_shortages += updated_count
+
+                db.session.commit()
+
+                # แสดง Flash Message
+                if fully_covered_count > 0 and partial_covered_count > 0:
+                    flash(f'✅ SKU {sku}: สต็อก {old_qty} → {new_qty} ชิ้น | อัปเดต {fully_covered_count} รายการ (ครบ) + {partial_covered_count} รายการ (บางส่วน) ตามลำดับ SLA', 'success')
+                elif fully_covered_count > 0:
+                    flash(f'✅ SKU {sku}: สต็อก {old_qty} → {new_qty} ชิ้น | อัปเดต {fully_covered_count} รายการเป็น "พร้อมหยิบ" (ครบ) ตามลำดับ SLA', 'success')
+                elif partial_covered_count > 0:
+                    flash(f'✅ SKU {sku}: สต็อก {old_qty} → {new_qty} ชิ้น | อัปเดต {partial_covered_count} รายการเป็น "พร้อมหยิบ" (บางส่วน) ตามลำดับ SLA', 'success')
+                else:
+                    flash(f'✅ SKU {sku}: สต็อก {old_qty} → {new_qty} ชิ้น | อัปเดต Shortage ตามลำดับ SLA', 'success')
+
+    # ✅ Phase 3: Reallocate waiting_stock orders after stock import
+    if updated_skus:
+        realloc_result = reallocate_waiting_orders(updated_skus)
+
+        # แสดง flash messages สำหรับ reallocation
+        for msg in realloc_result['messages']:
+            flash(msg, 'info')
+
+        # Summary message
+        if realloc_result['total_reallocated'] > 0:
+            flash(
+                f"🔄 จัดสรรสต็อกใหม่สำเร็จ: {realloc_result['total_reallocated']} orders "
+                f"ถูกเปลี่ยนจาก 'รอสต็อก' เป็น 'รอสร้าง Batch' ตามลำดับ SLA",
+                'success'
+            )
+
     return saved
+
+
+def reallocate_waiting_orders(updated_skus: list) -> dict:
+    """
+    ✅ Phase 3: SLA-based Reallocation for waiting_stock orders
+
+    When stock is imported, this function:
+    1. Finds orders with batch_status='waiting_stock' for the imported SKUs
+    2. Sorts by SLA (earliest first)
+    3. Checks if stock is now available
+    4. Changes status from 'waiting_stock' to 'pending_batch' if stock is available
+
+    Args:
+        updated_skus: List of dicts with {'sku': str, 'old_qty': int, 'new_qty': int}
+
+    Returns:
+        dict: {
+            'total_reallocated': int,
+            'by_sku': {sku: {'reallocated': int, 'still_waiting': int}},
+            'messages': [str]
+        }
+    """
+    from models import OrderLine, Stock
+    from utils import compute_due_date
+
+    result = {
+        'total_reallocated': 0,
+        'by_sku': {},
+        'messages': []
+    }
+
+    if not updated_skus:
+        return result
+
+    for sku_data in updated_skus:
+        sku = sku_data['sku']
+        old_qty = sku_data['old_qty']
+        new_qty = sku_data['new_qty']
+
+        # หา orders ที่รอสต็อก สำหรับ SKU นี้
+        waiting_orders = OrderLine.query.filter_by(
+            sku=sku,
+            batch_status="waiting_stock"
+        ).all()
+
+        if not waiting_orders:
+            continue
+
+        # คำนวณ SLA ถ้ายังไม่มี
+        for order in waiting_orders:
+            if not order.sla_date and order.order_time:
+                order.sla_date = compute_due_date(order.platform, order.order_time)
+
+        # เรียงตาม SLA (เร็วสุดก่อน)
+        waiting_orders = sorted(
+            waiting_orders,
+            key=lambda o: (o.sla_date is None, o.sla_date, o.order_time or datetime.min)
+        )
+
+        # ดึงสต็อกปัจจุบัน
+        stock = Stock.query.filter_by(sku=sku).first()
+        if not stock:
+            continue
+
+        available = stock.available_qty  # qty - reserved_qty
+
+        # จัดสรรตามลำดับ SLA
+        reallocated = 0
+        still_waiting = 0
+
+        for order in waiting_orders:
+            if available >= order.qty:
+                # ✅ มีสต็อกพอ → เปลี่ยนเป็น pending_batch
+                order.batch_status = "pending_batch"
+                available -= order.qty
+                reallocated += 1
+
+                print(
+                    f"  ✅ Reallocated: Order {order.order_id} | "
+                    f"SKU {sku} x{order.qty} | "
+                    f"SLA: {order.sla_date} | "
+                    f"Remaining: {available}"
+                )
+            else:
+                # ❌ สต็อกไม่พอ → ยังคงเป็น waiting_stock
+                still_waiting += 1
+                print(
+                    f"  ⏳ Still Waiting: Order {order.order_id} | "
+                    f"SKU {sku} x{order.qty} | "
+                    f"SLA: {order.sla_date} | "
+                    f"Available: {available}"
+                )
+
+        # บันทึกผลลัพธ์
+        result['by_sku'][sku] = {
+            'reallocated': reallocated,
+            'still_waiting': still_waiting,
+            'old_qty': old_qty,
+            'new_qty': new_qty
+        }
+        result['total_reallocated'] += reallocated
+
+        # สร้าง message
+        if reallocated > 0:
+            msg = (
+                f"📦 SKU {sku}: สต็อก {old_qty} → {new_qty} | "
+                f"จัดสรรให้ {reallocated} orders ตาม SLA"
+            )
+            if still_waiting > 0:
+                msg += f" | ยังรอ {still_waiting} orders"
+            result['messages'].append(msg)
+
+    # Commit การเปลี่ยนแปลง
+    if result['total_reallocated'] > 0:
+        db.session.commit()
+        print(f"\n✅ Total Reallocated: {result['total_reallocated']} orders")
+
+    return result
+
 
 def import_sales(df: pd.DataFrame) -> int:
     order_col  = first_existing(df, ["เลข Order","Order ID","order_id","orderNumber","Order Number"]) or "เลข Order"

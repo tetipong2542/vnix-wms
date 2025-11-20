@@ -103,22 +103,34 @@
     </div>
     <div class="card-body">
       {% if batches %}
-      <table class="table table-hover table-bordered" id="batchTable">
-        <thead class="table-dark">
-          <tr>
-            <th>Batch ID</th>
-            <th>Platform</th>
-            <th>Run</th>
-            <th>วันที่</th>
-            <th>จำนวนออเดอร์</th>
-            <th class="d-none d-lg-table-cell">Carriers</th>
-            <th>Progress</th>
-            <th>สถานะ</th>
-            <th>ส่งมอบ</th>
-            <th class="d-none d-md-table-cell">สร้างโดย</th>
-            <th>การกระทำ</th>
-          </tr>
-        </thead>
+      <style>
+        /* ✅ Auto-size columns to fit content */
+        #batchTable td, #batchTable th {
+          white-space: nowrap;
+        }
+        /* Allow Progress column to have more width */
+        #batchTable td:nth-child(7) {
+          white-space: normal;
+          min-width: 180px;
+        }
+      </style>
+      <div class="table-responsive">
+        <table class="table table-hover table-bordered table-sm" id="batchTable">
+          <thead class="table-dark">
+            <tr>
+              <th>Batch ID</th>
+              <th>Platform</th>
+              <th class="text-center">Run</th>
+              <th>วันที่</th>
+              <th class="text-center">จำนวนออเดอร์</th>
+              <th class="text-center">Carriers</th>
+              <th>Progress</th>
+              <th>สถานะ</th>
+              <th class="text-center">ส่งมอบ</th>
+              <th>สร้างโดย</th>
+              <th class="text-center">การกระทำ</th>
+            </tr>
+          </thead>
         <tbody>
           {% for batch in batches %}
           <tr>
@@ -150,7 +162,7 @@
             <td class="text-center">
               <span class="fs-4 fw-bold text-primary">{{ batch.total_orders }}</span>
             </td>
-            <td class="text-center d-none d-lg-table-cell">
+            <td class="text-center">
               {% set carriers = batch_carriers.get(batch.batch_id, {}) %}
               {% if carriers.get('SPX', 0) > 0 %}
                 <span class="badge bg-danger">SPX: {{ carriers.get('SPX', 0) }}</span>
@@ -213,8 +225,8 @@
                 {% endif %}
               {% endif %}
             </td>
-            <td class="d-none d-md-table-cell">{{ batch.created_by_username or '-' }}</td>
-            <td>
+            <td>{{ batch.created_by_username or '-' }}</td>
+            <td class="text-center">
               <div class="btn-group" role="group">
                 <a href="{{ url_for('batch_detail', batch_id=batch.batch_id) }}" class="btn btn-sm btn-info">
                   <i data-lucide="eye"></i> รายละเอียด
@@ -227,7 +239,8 @@
           </tr>
           {% endfor %}
         </tbody>
-      </table>
+        </table>
+      </div>
       {% else %}
       <div class="alert alert-info">
         ยังไม่มี Batch ในระบบ กรุณาสร้าง Batch ใหม่
@@ -239,7 +252,7 @@
 
 <!-- Quick Create Modal -->
 <div class="modal fade" id="quickCreateModal" tabindex="-1" aria-labelledby="quickCreateModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <div class="modal-header bg-warning">
         <h5 class="modal-title" id="quickCreateModalLabel">สร้าง Batch แบบรวดเร็ว</h5>
@@ -278,7 +291,7 @@
           <!-- Carrier Summary -->
           <div class="card mb-3">
             <div class="card-header bg-secondary text-white">
-              <strong>แยกตามขนส่ง</strong>
+              <strong>แยกตามขนส่ง (Carrier)</strong>
             </div>
             <div class="card-body">
               <div id="previewCarrierSummary" class="row"></div>
@@ -288,10 +301,47 @@
           <!-- Shop Summary -->
           <div class="card mb-3">
             <div class="card-header bg-info text-white">
-              <strong>แยกตามร้าน</strong>
+              <strong>แยกตามร้าน (Shop)</strong>
             </div>
             <div class="card-body">
               <div id="previewShopSummary" class="row"></div>
+            </div>
+          </div>
+
+          <!-- ✅ Order List Table with Preview + Toggle -->
+          <div class="card mb-3">
+            <div class="card-header bg-success text-white">
+              <strong><i data-lucide="list"></i> รายการออเดอร์ใน Batch (<span id="previewOrderCount">0</span> รายการ)</strong>
+            </div>
+            <div class="card-body">
+              <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                <table class="table table-sm table-bordered table-hover" id="modalOrderTable" style="font-size: 0.85rem;">
+                  <thead class="table-dark sticky-top">
+                    <tr>
+                      <th class="text-center" style="min-width: 40px;">#</th>
+                      <th style="min-width: 100px;">Order ID</th>
+                      <th style="min-width: 145px;">SKU</th>
+                      <th class="d-none d-lg-table-cell" style="min-width: 150px;">รายการสินค้า</th>
+                      <th class="text-center" style="min-width: 60px;">จำนวน</th>
+                      <th style="min-width: 80px;">Platform</th>
+                      <th class="d-none d-md-table-cell" style="min-width: 80px;">Carrier</th>
+                      <th class="d-none d-xl-table-cell" style="min-width: 70px;">Shop</th>
+                      <th class="d-none d-md-table-cell" style="min-width: 90px;">SLA</th>
+                    </tr>
+                  </thead>
+                  <tbody id="previewOrderList">
+                    <!-- Orders will be populated by JavaScript -->
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Show All Button -->
+              <div class="text-center py-3 border-top d-none" id="modalShowAllBtnContainer">
+                <button class="btn btn-outline-success" id="modalShowAllBtn" onclick="toggleShowAllOrdersModal()">
+                  <i data-lucide="chevrons-down"></i>
+                  แสดงทั้งหมด (<span id="modalRemainingCount">0</span> รายการที่เหลือ)
+                </button>
+              </div>
             </div>
           </div>
 
@@ -317,6 +367,9 @@
 
 <script>
 let currentQuickCreatePlatform = null;
+let modalAllOrders = [];
+let modalIsShowingAll = false;
+const MODAL_PREVIEW_LIMIT = 15;
 
 function loadQuickCreateData(platform) {
   currentQuickCreatePlatform = platform;
@@ -375,7 +428,31 @@ function loadQuickCreateData(platform) {
           </div>
         `).join('');
         $('#previewShopSummary').html(shopHtml);
-        
+
+        // ✅ Order list with Preview + Toggle
+        const MODAL_PREVIEW_LIMIT = 15;
+        modalAllOrders = data.orders || []; // Store all orders globally
+        modalIsShowingAll = false;
+
+        $('#previewOrderCount').text(modalAllOrders.length);
+
+        if (modalAllOrders.length > 0) {
+          // Show only first 15 orders
+          const ordersToShow = modalAllOrders.slice(0, MODAL_PREVIEW_LIMIT);
+          renderModalOrders(ordersToShow);
+
+          // Show "Show All" button if there are more than 15 orders
+          if (modalAllOrders.length > MODAL_PREVIEW_LIMIT) {
+            $('#modalRemainingCount').text(modalAllOrders.length - MODAL_PREVIEW_LIMIT);
+            $('#modalShowAllBtnContainer').removeClass('d-none');
+          } else {
+            $('#modalShowAllBtnContainer').addClass('d-none');
+          }
+        } else {
+          $('#previewOrderList').html('<tr><td colspan="9" class="text-center text-muted">ไม่มีรายการออเดอร์</td></tr>');
+          $('#modalShowAllBtnContainer').addClass('d-none');
+        }
+
         // Show content
         $('#quickCreateLoading').addClass('d-none');
         $('#quickCreateContent').removeClass('d-none');
@@ -395,6 +472,97 @@ function showQuickCreateError(message) {
   $('#quickCreateContent').addClass('d-none');
   $('#quickCreateError').text(message).removeClass('d-none');
   $('#btnConfirmQuickCreate').prop('disabled', true);
+}
+
+// ✅ Render orders in modal with responsive classes
+function renderModalOrders(orders) {
+  const orderListHtml = orders.map((order, index) => {
+    // Platform badge
+    const platformBadges = {
+      'Shopee': '<span class="badge bg-danger">Shopee</span>',
+      'Lazada': '<span class="badge bg-primary">Lazada</span>',
+      'TikTok': '<span class="badge bg-dark">TikTok</span>'
+    };
+    const platformBadge = platformBadges[order.platform] || `<span class="badge bg-secondary">${order.platform}</span>`;
+
+    // Carrier badge
+    let carrierBadge = '<span class="text-muted">-</span>';
+    if (order.carrier) {
+      const carrierBadges = {
+        'SPX': '<span class="badge bg-danger">SPX</span>',
+        'Flash': '<span class="badge bg-warning text-dark">Flash</span>',
+        'LEX': '<span class="badge bg-primary">LEX</span>',
+        'J&T': '<span class="badge bg-success">J&T</span>'
+      };
+      carrierBadge = carrierBadges[order.carrier] || `<span class="badge bg-secondary">${order.carrier}</span>`;
+    }
+
+    // Shop
+    const shopDisplay = order.shop_name ? `<small>${order.shop_name}</small>` : '<span class="text-muted">-</span>';
+
+    // SLA badge
+    const slaBadge = order.sla_date ? `<span class="badge bg-primary">${order.sla_date}</span>` : '<span class="text-muted">-</span>';
+
+    return `
+      <tr>
+        <td class="text-center">${index + 1}</td>
+        <td><small>${order.order_id}</small></td>
+        <td><code style="font-size: 0.75rem;">${order.sku}</code></td>
+        <td class="d-none d-lg-table-cell"><small>${order.item_name || '-'}</small></td>
+        <td class="text-center"><strong>${order.qty}</strong></td>
+        <td>${platformBadge}</td>
+        <td class="d-none d-md-table-cell">${carrierBadge}</td>
+        <td class="d-none d-xl-table-cell">${shopDisplay}</td>
+        <td class="d-none d-md-table-cell">${slaBadge}</td>
+      </tr>
+    `;
+  }).join('');
+
+  $('#previewOrderList').html(orderListHtml);
+
+  // Refresh Lucide icons
+  if (window.lucide) {
+    lucide.createIcons();
+  }
+}
+
+// ✅ Toggle Show All / Hide in Modal
+function toggleShowAllOrdersModal() {
+  if (!modalIsShowingAll) {
+    // Show all orders
+    renderModalOrders(modalAllOrders);
+
+    // Update button
+    const btn = document.getElementById('modalShowAllBtn');
+    btn.innerHTML = '<i data-lucide="chevrons-up"></i> ซ่อนรายการ';
+    btn.classList.remove('btn-outline-success');
+    btn.classList.add('btn-outline-secondary');
+
+    // Update count display
+    document.getElementById('previewOrderCount').textContent = modalAllOrders.length + ' (แสดงทั้งหมด)';
+
+    modalIsShowingAll = true;
+  } else {
+    // Show only preview (first 15)
+    const ordersToShow = modalAllOrders.slice(0, MODAL_PREVIEW_LIMIT);
+    renderModalOrders(ordersToShow);
+
+    // Update button
+    const btn = document.getElementById('modalShowAllBtn');
+    btn.innerHTML = `<i data-lucide="chevrons-down"></i> แสดงทั้งหมด (<span id="modalRemainingCount">${modalAllOrders.length - MODAL_PREVIEW_LIMIT}</span> รายการที่เหลือ)`;
+    btn.classList.remove('btn-outline-secondary');
+    btn.classList.add('btn-outline-success');
+
+    // Update count display
+    document.getElementById('previewOrderCount').textContent = modalAllOrders.length;
+
+    modalIsShowingAll = false;
+  }
+
+  // Refresh Lucide icons
+  if (window.lucide) {
+    lucide.createIcons();
+  }
 }
 
 function confirmQuickCreate() {
@@ -477,10 +645,11 @@ function generateHandoverCodeFromList(batchId) {
 }
 
 $(document).ready(function() {
-  // Initialize DataTable (simple, no filters)
+  // Initialize DataTable (simple mode, responsive handled by Bootstrap)
   $('#batchTable').DataTable({
     order: [], // ไม่เรียงลำดับใหม่ เพราะ backend เรียงให้แล้ว (ยังไม่ส่งมอบก่อน)
     pageLength: 25,
+    autoWidth: false, // ✅ Let columns auto-size to fit content
     language: {
       url: '//cdn.datatables.net/plug-ins/1.13.8/i18n/th.json'
     }

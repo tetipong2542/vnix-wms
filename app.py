@@ -25,9 +25,10 @@ load_dotenv()
 
 from utils import (
     now_thai, to_thai_be, to_be_date_str, TH_TZ, current_be_year,
-    normalize_platform, sla_text, compute_due_date, clean_logistic
+    normalize_platform, sla_text, compute_due_date, clean_logistic,
+    format_sla_thai  # ✅ NEW: แปลง SLA เป็นภาษาไทย
 )
-from models import db, Shop, Product, Stock, Sales, OrderLine, User, Batch, AuditLog, ShortageQueue
+from models import db, Shop, Product, Stock, StockTransaction, Sales, OrderLine, User, Batch, AuditLog, ShortageQueue
 from importers import import_products, import_stock, import_sales, import_orders
 from allocation import compute_allocation
 
@@ -231,6 +232,93 @@ def create_app():
         )
         db.session.add(log)
         db.session.commit()
+
+    # -----------------
+    # Stock Transaction Logging (Option 2: Banking-style)
+    # -----------------
+    def log_stock_transaction(
+        sku: str,
+        transaction_type: str,
+        quantity: int,
+        reason_code: str,
+        reference_type: str = None,
+        reference_id: str = None,
+        notes: str = None
+    ):
+        """
+        Log stock transaction (Banking-style ledger)
+
+        Args:
+            sku: SKU code
+            transaction_type: 'RECEIVE', 'RESERVE', 'RELEASE', 'PICK', 'DAMAGE', 'ADJUST', 'RETURN'
+            quantity: Signed integer (+10 for increase, -2 for decrease)
+            reason_code: Root cause code (e.g., 'IMPORT', 'BATCH_RESERVE', 'FOUND_DAMAGED', 'CANT_FIND')
+            reference_type: 'import', 'batch', 'order_line', 'shortage', 'adjustment'
+            reference_id: ID of the reference entity (batch_id, order_line_id, etc.)
+            notes: Additional context
+
+        Returns:
+            StockTransaction: Created transaction record
+
+        Example:
+            # Stock import: +100 items
+            log_stock_transaction('SKU-001', 'RECEIVE', +100, 'IMPORT', 'import', 'IMP-20250120')
+
+            # Batch reserve: -10 items
+            log_stock_transaction('SKU-001', 'RESERVE', -10, 'BATCH_RESERVE', 'batch', 'B-SHP-20250120-R1')
+
+            # Handover release: +2 items (returned reserved stock)
+            log_stock_transaction('SKU-001', 'RELEASE', +2, 'HANDOVER_RELEASE', 'batch', 'B-SHP-20250120-R1')
+
+            # Damage found: -1 item
+            log_stock_transaction('SKU-001', 'DAMAGE', -1, 'FOUND_DAMAGED', 'shortage', '123')
+        """
+        # Get current stock to calculate balance_after
+        stock = Stock.query.filter_by(sku=sku).first()
+
+        if not stock:
+            # Create stock record if it doesn't exist
+            stock = Stock(sku=sku, qty=0, reserved_qty=0)
+            db.session.add(stock)
+            db.session.flush()  # Get the ID without committing
+
+        # Calculate balance based on transaction type
+        if transaction_type in ['RECEIVE', 'RELEASE', 'RETURN', 'ADJUST']:
+            # These affect qty (actual stock)
+            balance_before = stock.qty or 0
+            balance_after = balance_before + quantity
+        elif transaction_type in ['RESERVE']:
+            # Reserve affects reserved_qty (virtual deduction)
+            balance_before = stock.reserved_qty or 0
+            balance_after = balance_before + abs(quantity)  # RESERVE is always positive increase in reserved_qty
+        else:
+            # For other types (PICK, DAMAGE), use qty
+            balance_before = stock.qty or 0
+            balance_after = balance_before + quantity
+
+        # Get current user
+        cu = current_user()
+        created_by_username = cu.username if cu else "system"
+
+        # Create transaction record
+        tx = StockTransaction(
+            sku=sku,
+            transaction_type=transaction_type,
+            quantity=quantity,
+            balance_after=balance_after,
+            reason_code=reason_code,
+            reference_type=reference_type,
+            reference_id=reference_id,
+            created_by=created_by_username,
+            notes=notes
+        )
+        db.session.add(tx)
+
+        # Note: We don't update the Stock table here - that's done separately
+        # This function only LOGS the transaction for audit trail
+        # The actual stock update happens in the calling code
+
+        return tx
 
     # -----------------
     # Batch Management Helpers (FR-04 to FR-09)
@@ -566,11 +654,14 @@ def create_app():
 
     def create_batch_from_pending(platform: str, run_no: int = None, batch_date: date = None) -> Batch:
         """
-        FR-04 to FR-07: Create batch from pending orders
-        - Selects orders with batch_status='pending_batch'
-        - Creates Batch record with summary
-        - Updates orders to batch_status='batched'
-        - Locks batch immediately
+        FR-04 to FR-07 + Phase 2: Create batch from pending orders with SLA-based allocation
+
+        ✅ Phase 2: SLA-based Stock Allocation
+        - Calculates SLA for orders without sla_date
+        - Sorts orders by SLA (earliest first)
+        - Allocates stock based on SLA priority
+        - Only creates batch with orders that have sufficient stock
+        - Orders without stock are marked as 'waiting_stock'
 
         ✅ Security: Race condition protection using FOR UPDATE lock
 
@@ -610,44 +701,78 @@ def create_app():
         if not pending_orders:
             raise ValueError(f"No pending orders found for {platform_std}")
 
-        # ✅ Stock Reservation: Calculate SKU requirements and check availability
-        sku_requirements = {}
+        # ✅ Phase 2: Calculate SLA for orders that don't have it yet
+        orders_updated = 0
         for order in pending_orders:
-            sku_requirements[order.sku] = sku_requirements.get(order.sku, 0) + order.qty
+            if not order.sla_date and order.order_time:
+                order.sla_date = compute_due_date(platform_std, order.order_time)
+                orders_updated += 1
 
-        # Check stock availability (reserved stock is considered)
-        stock_warnings = []
-        for sku, qty_needed in sku_requirements.items():
+        if orders_updated > 0:
+            db.session.commit()
+            app.logger.info(f"📅 Calculated SLA for {orders_updated} orders")
+
+        # ✅ Phase 2: Sort orders by SLA (earliest first, None last)
+        pending_orders = sorted(
+            pending_orders,
+            key=lambda o: (o.sla_date is None, o.sla_date, o.order_time or datetime.min)
+        )
+
+        app.logger.info(f"📊 Processing {len(pending_orders)} orders in SLA order")
+
+        # ✅ Phase 2: SLA-based Stock Allocation Simulation
+        # Build available stock tracker (current available - what we'll allocate)
+        stock_tracker = {}  # {sku: available_qty}
+        for sku in set(o.sku for o in pending_orders):
             stock = Stock.query.filter_by(sku=sku).first()
             if stock:
-                available = stock.available_qty  # Uses property: qty - reserved_qty
-                if qty_needed > available:
-                    stock_warnings.append({
-                        "sku": sku,
-                        "needed": qty_needed,
-                        "total_stock": stock.qty,
-                        "reserved": stock.reserved_qty or 0,
-                        "available": available,
-                        "shortage": qty_needed - available
-                    })
+                stock_tracker[sku] = stock.available_qty
             else:
-                stock_warnings.append({
-                    "sku": sku,
-                    "needed": qty_needed,
-                    "total_stock": 0,
-                    "reserved": 0,
-                    "available": 0,
-                    "shortage": qty_needed
-                })
+                stock_tracker[sku] = 0
 
-        # If there are stock warnings, log them but allow batch creation
-        if stock_warnings:
-            app.logger.warning(f"Stock warnings for batch {batch_id}: {stock_warnings}")
-            # You can choose to raise an error here if you want strict enforcement:
-            # raise ValueError(f"Insufficient stock for {len(stock_warnings)} SKUs")
+        # Allocate orders to batch based on SLA priority
+        batch_orders = []  # Orders that will be in the batch
+        waiting_orders = []  # Orders that don't have stock
 
-        # Compute summary
-        summary = compute_batch_summary(pending_orders)
+        for order in pending_orders:
+            available = stock_tracker.get(order.sku, 0)
+
+            if available >= order.qty:
+                # ✅ Enough stock - allocate to batch
+                batch_orders.append(order)
+                stock_tracker[order.sku] = available - order.qty
+                app.logger.debug(
+                    f"  ✅ Allocated: {order.sku} x{order.qty} | "
+                    f"SLA: {order.sla_date} | "
+                    f"Remaining: {stock_tracker[order.sku]}"
+                )
+            else:
+                # ❌ Not enough stock - mark as waiting
+                waiting_orders.append(order)
+                app.logger.warning(
+                    f"  ⏳ Waiting: {order.sku} x{order.qty} | "
+                    f"SLA: {order.sla_date} | "
+                    f"Available: {available} | "
+                    f"Shortage: {order.qty - available}"
+                )
+
+        # Check if we have any orders to create a batch
+        if not batch_orders:
+            # Mark all orders as waiting_stock
+            for order in waiting_orders:
+                order.batch_status = "waiting_stock"
+            db.session.commit()
+            raise ValueError(
+                f"No orders can be batched for {platform_std} - "
+                f"all {len(waiting_orders)} orders are waiting for stock"
+            )
+
+        # ✅ Phase 2: Compute summary from batch_orders only (not all pending orders)
+        summary = compute_batch_summary(batch_orders)
+
+        # ✅ Phase 2: Calculate batch SLA (earliest SLA in batch)
+        batch_sla_dates = [o.sla_date for o in batch_orders if o.sla_date]
+        batch_sla = min(batch_sla_dates) if batch_sla_dates else None
 
         # Create batch
         cu = current_user()
@@ -656,6 +781,7 @@ def create_app():
             platform=platform_std,
             run_no=run_no,
             batch_date=batch_date,
+            sla_date=batch_sla,  # ✅ Phase 2: Set batch SLA
             total_orders=summary["total_orders"],
             spx_count=summary["carrier_summary"].get("SPX", 0),
             flash_count=summary["carrier_summary"].get("Flash", 0),
@@ -669,12 +795,66 @@ def create_app():
         )
         db.session.add(batch)
 
-        # Update orders to batched status
-        for order in pending_orders:
+        # ✅ Phase 2: Update orders to batched status (only batch_orders)
+        for order in batch_orders:
             order.batch_status = "batched"
             order.batch_id = batch_id
 
-        # ✅ Stock Reservation: Reserve stock for this batch
+        # ✅ Phase 2: Mark orders without stock as waiting_stock
+        for order in waiting_orders:
+            order.batch_status = "waiting_stock"
+            # Keep batch_id as None for waiting orders
+
+        # ✅ Priority 2.1: Create PRE_PICK shortage records for waiting orders
+        cu = current_user() if 'cu' not in locals() else cu
+        for order in waiting_orders:
+            available = stock_tracker.get(order.sku, 0)
+            shortage_qty = order.qty - available
+
+            # Create PRE_PICK shortage record
+            shortage_record = ShortageQueue(
+                order_line_id=order.id,
+                order_id=order.order_id,
+                sku=order.sku,
+                qty_required=order.qty,
+                qty_picked=0,
+                qty_shortage=shortage_qty,
+                original_batch_id=None,  # No batch yet since stock insufficient
+                shortage_reason='INSUFFICIENT_STOCK',
+                shortage_type='PRE_PICK',  # ← KEY: Mark as PRE_PICK
+                notes=f"Insufficient stock during batch creation. Available: {available}, Required: {order.qty}",
+                status='waiting_stock',
+                created_by_user_id=cu.id if cu else None,
+                created_by_username=cu.username if cu else "system"
+            )
+            db.session.add(shortage_record)
+
+            # Update order shortage_qty field
+            order.shortage_qty = shortage_qty
+            order.dispatch_status = "waiting_stock"
+
+            # Log PRE_PICK transaction
+            log_stock_transaction(
+                sku=order.sku,
+                transaction_type='DAMAGE',
+                quantity=-shortage_qty,
+                reason_code='PRE_PICK_SHORTAGE',
+                reference_type='order_line',
+                reference_id=str(order.id),
+                notes=f"PRE_PICK shortage: {order.order_id} - Available: {available}, Required: {order.qty}"
+            )
+
+            app.logger.info(
+                f"  📝 Created PRE_PICK shortage: {order.order_id} | "
+                f"SKU: {order.sku} | Shortage: {shortage_qty}"
+            )
+
+        # ✅ Phase 2: Calculate SKU requirements for batch_orders only
+        sku_requirements = {}
+        for order in batch_orders:
+            sku_requirements[order.sku] = sku_requirements.get(order.sku, 0) + order.qty
+
+        # ✅ Stock Reservation: Reserve stock for this batch (batch_orders only)
         for sku, qty_needed in sku_requirements.items():
             stock = Stock.query.filter_by(sku=sku).first()
             if stock:
@@ -684,6 +864,17 @@ def create_app():
                 stock = Stock(sku=sku, qty=0, reserved_qty=qty_needed)
                 db.session.add(stock)
 
+            # ✅ Option 2: Log stock reservation transaction
+            log_stock_transaction(
+                sku=sku,
+                transaction_type='RESERVE',
+                quantity=qty_needed,  # RESERVE is always positive (amount reserved)
+                reason_code='BATCH_RESERVE',
+                reference_type='batch',
+                reference_id=batch_id,
+                notes=f"Reserved {qty_needed} units for batch {batch_id}"
+            )
+
         try:
             db.session.commit()
         except Exception as e:
@@ -691,11 +882,27 @@ def create_app():
             app.logger.error(f"Failed to create batch {batch_id}: {str(e)}")
             raise ValueError(f"Failed to create batch: {str(e)}")
 
+        # ✅ Phase 2: Log SLA-based allocation results
+        app.logger.info(
+            f"✅ Batch {batch_id} created | "
+            f"SLA: {batch_sla} | "
+            f"Orders in batch: {len(batch_orders)} | "
+            f"Waiting for stock: {len(waiting_orders)}"
+        )
+
+        if waiting_orders:
+            app.logger.warning(
+                f"⏳ {len(waiting_orders)} orders marked as waiting_stock for {platform_std}"
+            )
+
         # Log audit
         log_audit("create_batch", {
             "batch_id": batch_id,
             "platform": platform_std,
             "run_no": run_no,
+            "batch_sla": str(batch_sla) if batch_sla else None,  # ✅ Phase 2: Include SLA
+            "orders_in_batch": len(batch_orders),  # ✅ Phase 2: Separate counts
+            "orders_waiting": len(waiting_orders),
             "summary": summary
         }, batch_id=batch_id, order_count=summary["total_orders"])
 
@@ -758,6 +965,76 @@ def create_app():
 
         # All retries failed
         raise ValueError(f"Failed to create batch after {max_retries} attempts. Last error: {last_error}")
+
+    def release_stock_reservation(batch_id: str, sku: str, qty_to_release: int, reason: str = "completed") -> bool:
+        """
+        ✅ Phase 0: Release reserved stock for a specific SKU in a batch
+
+        This function should be called when:
+        1. SKU is fully picked (picked_qty >= required_qty)
+        2. Shortage is resolved (cancelled/reduced)
+        3. Batch is handed over (all SKUs completed)
+
+        Args:
+            batch_id: Batch ID
+            sku: SKU to release reservation
+            qty_to_release: Quantity to release
+            reason: Reason for release (for logging)
+
+        Returns:
+            bool: True if released successfully, False otherwise
+
+        Logic:
+            released_qty = picked_qty + shortage_qty
+            - picked_qty: จำนวนที่หยิบได้จริง (ออกจากสต็อกแล้ว)
+            - shortage_qty: จำนวนที่ขาด (ไม่มีในสต็อกตั้งแต่แรก หรือถูก resolve แล้ว)
+
+        IMPORTANT: This function does NOT commit. Caller must commit after calling this function.
+        """
+        if qty_to_release <= 0:
+            return False
+
+        try:
+            stock = Stock.query.filter_by(sku=sku).with_for_update().first()
+
+            if not stock:
+                app.logger.warning(f"⚠️ Stock not found for SKU {sku} - cannot release reservation")
+                return False
+
+            if stock.reserved_qty <= 0:
+                app.logger.warning(f"⚠️ No reserved stock for SKU {sku} - already released or never reserved")
+                return False
+
+            old_reserved = stock.reserved_qty
+            stock.reserved_qty = max(0, stock.reserved_qty - qty_to_release)
+
+            # ✅ Option 2: Log stock reservation release transaction
+            log_stock_transaction(
+                sku=sku,
+                transaction_type='RELEASE',
+                quantity=qty_to_release,  # Positive number (amount released from reservation)
+                reason_code='HANDOVER_RELEASE',
+                reference_type='batch',
+                reference_id=batch_id,
+                notes=f"Released {qty_to_release} units from reservation | Reason: {reason}"
+            )
+
+            app.logger.info(
+                f"✅ Stock Reservation Released: {sku} | "
+                f"Batch: {batch_id} | "
+                f"Released: {qty_to_release} | "
+                f"Reserved: {old_reserved} → {stock.reserved_qty} | "
+                f"Reason: {reason}"
+            )
+
+            # ✅ FIX: ไม่ commit ที่นี่ ให้ caller เป็นคน commit
+            # เพื่อป้องกัน partial commit และ race condition
+            return True
+
+        except Exception as e:
+            app.logger.error(f"❌ Failed to release stock reservation for {sku}: {str(e)}")
+            # ไม่ rollback ที่นี่ เพราะอาจมี operation อื่นใน transaction
+            raise  # Re-raise exception ให้ caller จัดการ
 
     # -----------------
     # Utilities (app)
@@ -1423,6 +1700,59 @@ def create_app():
         return render_template("import_sales.html", logs=logs)
 
     # -----------------------
+    # Stock Ledger & Analytics (Option 2: Banking-style)
+    # -----------------------
+    @app.route("/stock/<sku>/ledger")
+    @login_required
+    def stock_ledger(sku):
+        """
+        Display transaction history for a specific SKU (Banking-style ledger)
+        Similar to bank statement showing all debits/credits
+        """
+        # Get stock info
+        stock = Stock.query.filter_by(sku=sku).first()
+        if not stock:
+            flash(f"ไม่พบข้อมูลสต็อก SKU: {sku}", "warning")
+            return redirect(url_for("dashboard"))
+
+        # Get product info
+        product = Product.query.filter_by(sku=sku).first()
+
+        # Get all transactions for this SKU (newest first)
+        transactions = StockTransaction.query.filter_by(sku=sku).order_by(
+            StockTransaction.created_at.desc()
+        ).all()
+
+        # Calculate summary statistics
+        total_received = db.session.query(func.sum(StockTransaction.quantity)).filter(
+            StockTransaction.sku == sku,
+            StockTransaction.transaction_type == 'RECEIVE'
+        ).scalar() or 0
+
+        total_reserved = stock.reserved_qty or 0
+        total_available = stock.available_qty
+
+        # Get active batches using this SKU
+        active_batches = db.session.query(Batch.batch_id).join(
+            OrderLine, OrderLine.batch_id == Batch.batch_id
+        ).filter(
+            OrderLine.sku == sku,
+            Batch.handover_confirmed == False
+        ).distinct().all()
+
+        return render_template(
+            "stock_ledger.html",
+            sku=sku,
+            stock=stock,
+            product=product,
+            transactions=transactions,
+            total_received=total_received,
+            total_reserved=total_reserved,
+            total_available=total_available,
+            active_batches=[b[0] for b in active_batches]
+        )
+
+    # -----------------------
     # Batch Management Routes (FR-04 to FR-09)
     # -----------------------
     @app.route("/batch/list")
@@ -1540,7 +1870,7 @@ def create_app():
             platform = request.args.get("platform")
 
             if platform:
-                # Preview: count pending orders
+                # ✅ Phase 2: Preview with SLA-based allocation simulation
                 platform_std = normalize_platform(platform)
                 pending = OrderLine.query.filter_by(
                     platform=platform_std,
@@ -1548,11 +1878,58 @@ def create_app():
                 ).all()
 
                 if pending:
-                    preview_summary = compute_batch_summary(pending)
+                    # Calculate SLA for preview (don't save yet)
+                    for order in pending:
+                        if not order.sla_date and order.order_time:
+                            order.sla_date = compute_due_date(platform_std, order.order_time)
+
+                    # Sort by SLA
+                    pending = sorted(
+                        pending,
+                        key=lambda o: (o.sla_date is None, o.sla_date, o.order_time or datetime.min)
+                    )
+
+                    # Simulate stock allocation
+                    stock_tracker = {}
+                    for sku in set(o.sku for o in pending):
+                        stock = Stock.query.filter_by(sku=sku).first()
+                        stock_tracker[sku] = stock.available_qty if stock else 0
+
+                    batch_orders = []
+                    waiting_orders = []
+
+                    for order in pending:
+                        available = stock_tracker.get(order.sku, 0)
+                        if available >= order.qty:
+                            batch_orders.append(order)
+                            stock_tracker[order.sku] = available - order.qty
+                        else:
+                            waiting_orders.append(order)
+
+                    # Create preview summary
+                    if batch_orders:
+                        preview_summary = compute_batch_summary(batch_orders)
+                        # ✅ Phase 2: Add allocation info
+                        preview_summary["allocation"] = {
+                            "batch_orders": len(batch_orders),
+                            "waiting_orders": len(waiting_orders),
+                            "batch_sla": min([o.sla_date for o in batch_orders if o.sla_date], default=None)
+                        }
+                    else:
+                        preview_summary = None
+
+                    # ✅ Phase 2: Pass waiting_orders to template
+                    # ✅ Pass batch_orders for detailed order list display
+                    return render_template(
+                        "batch_create.html",
+                        platform=platform_std,
+                        preview=preview_summary,
+                        waiting_orders=waiting_orders,
+                        batch_orders=batch_orders
+                    )
                 else:
                     preview_summary = None
-
-                return render_template("batch_create.html", platform=platform_std, preview=preview_summary)
+                    return render_template("batch_create.html", platform=platform_std, preview=preview_summary)
             else:
                 # Initial form
                 platforms = ["Shopee", "Lazada", "TikTok"]
@@ -1632,9 +2009,12 @@ def create_app():
                     "model": product.model if product else "",
                     "item_name": order.item_name,
                     "stock_qty": stock.qty if stock else 0,
+                    "reserved_qty": stock.reserved_qty if stock else 0,  # ✅ NEW: จำนวน Stock ที่จองไว้
+                    "available_qty": stock.available_qty if stock else 0,  # ✅ NEW: Stock ที่ใช้ได้จริง (Total - Reserved)
                     "total_need": 0,
                     "total_picked": 0,
-                    "total_shortage": 0
+                    "total_shortage": 0,
+                    "earliest_sla": None  # ✅ NEW: Track earliest SLA for this SKU
                 }
 
             sku_progress[order.sku]["total_need"] += order.qty
@@ -1644,6 +2024,30 @@ def create_app():
             # shortage_qty เป็น field จริงใน DB ที่อัปเดตเมื่อมีการ mark/resolve shortage
             sku_progress[order.sku]["total_shortage"] += (order.shortage_qty or 0)
 
+            # ✅ NEW: Track earliest SLA (order_time) for this SKU
+            current_sla = sku_progress[order.sku]["earliest_sla"]
+            if order.order_time:
+                if current_sla is None or order.order_time < current_sla:
+                    sku_progress[order.sku]["earliest_sla"] = format_sla_thai(order.order_time)
+
+        # ✅ FIX: เช็ค Shortage จาก ShortageQueue Records เพื่อความแม่นยำ
+        # เพราะ shortage_qty field อาจไม่ได้อัปเดตทันที
+        shortage_from_queue = {}
+        for order in orders:
+            # ดึง Shortage Records ที่ยังไม่ได้ resolve
+            pending_shortages = ShortageQueue.query.filter(
+                ShortageQueue.order_line_id == order.id,
+                ShortageQueue.sku == order.sku,
+                ShortageQueue.status.in_(['pending', 'waiting_stock', 'ready_to_pick'])
+            ).all()
+
+            if pending_shortages:
+                sku = order.sku
+                if sku not in shortage_from_queue:
+                    shortage_from_queue[sku] = 0
+                for shortage in pending_shortages:
+                    shortage_from_queue[sku] += (shortage.qty_shortage or 0)
+
         # คำนวณสถานะและเรียงลำดับ
         sku_list = []
         for sku, data in sku_progress.items():
@@ -1652,19 +2056,20 @@ def create_app():
             remaining_to_pick = data["total_need"] - data["total_picked"]
             data["remaining"] = max(0, remaining_to_pick)  # ป้องกันค่าติดลบ
 
-            # ✅ "ขาด" = total_shortage (จำนวนที่ mark ว่าขาดแล้ว)
-            # ไม่ต้องคำนวณใหม่ เพราะ shortage_qty ใน DB บันทึกค่านี้ไว้แล้ว
-            data["actual_shortage"] = data["total_shortage"]
+            # ✅ FIX: "ขาด" = ใช้ค่าจาก ShortageQueue แทน shortage_qty field
+            actual_shortage = shortage_from_queue.get(sku, 0) or data["total_shortage"]
+            data["actual_shortage"] = actual_shortage
 
-            # กำหนดสถานะ
-            if data["total_picked"] >= data["total_need"]:
+            # กำหนดสถานะ (ให้ Shortage มีลำดับความสำคัญสูงสุด)
+            if actual_shortage > 0:
+                # ✅ มี Shortage → แสดงสถานะ "ขาด" ทันที (ไม่ว่าจะหยิบแล้วหรือยัง)
+                data["status"] = "shortage"
+                data["status_badge"] = "danger"
+                data["status_text"] = f"ขาด {actual_shortage} ชิ้น"
+            elif data["total_picked"] >= data["total_need"]:
                 data["status"] = "completed"
                 data["status_badge"] = "success"
                 data["status_text"] = "เสร็จสิ้น"
-            elif data["total_shortage"] > 0:
-                data["status"] = "shortage"
-                data["status_badge"] = "danger"
-                data["status_text"] = f"ขาด {data['total_shortage']} ชิ้น"
             elif data["total_picked"] > 0:
                 data["status"] = "picking"
                 data["status_badge"] = "warning"
@@ -1753,6 +2158,39 @@ def create_app():
         # ✨ NEW: ตรวจสอบว่า Batch พร้อมสร้าง Handover Code หรือไม่ (SKU-based)
         batch_readiness = is_batch_ready_for_handover(batch_id)
 
+        # ✅ NEW: ตรวจสอบว่าสามารถแยก Batch ได้หรือไม่
+        # เงื่อนไข:
+        # 1. Batch มีสถานะ "ขาด" (มี SKU ที่มี shortage > 0)
+        # 2. มีออเดอร์อย่างน้อย 1 ออเดอร์ที่หยิบครบ 100%
+        # 3. ยังไม่ถึงระดับ R5
+        can_split = False
+        has_shortage = False
+        has_complete_order = False
+
+        # คำนวณระดับ (depth) ของ Batch
+        current_depth = 0
+        temp_batch = batch
+        while temp_batch.parent_batch_id is not None:
+            current_depth += 1
+            temp_batch = db.session.get(Batch, temp_batch.parent_batch_id)
+            if temp_batch is None:
+                break
+
+        # เช็คว่ามี Shortage หรือไม่
+        for sku_data in sku_list:
+            if sku_data.get("total_shortage", 0) > 0:
+                has_shortage = True
+                break
+
+        # เช็คว่ามีออเดอร์ที่หยิบครบหรือไม่
+        for order in orders:
+            if order.picked_qty >= order.qty:
+                has_complete_order = True
+                break
+
+        # สามารถแยกได้ถ้า: มี Shortage + มีออเดอร์ที่หยิบครบ + ยังไม่ถึง R5
+        can_split = has_shortage and has_complete_order and current_depth < 5
+
         return render_template(
             "batch_detail.html",
             batch=batch,
@@ -1763,7 +2201,9 @@ def create_app():
             shortage_details=shortage_details,  # ✅ ส่งข้อมูล shortage ไปด้วย
             batch_progress=batch_progress_data,  # ✅ ส่ง Overall Progress (Quantity-based)
             batch_family=batch_family_data,  # ✨ NEW: ส่งข้อมูล Parent-Child Batch Family
-            batch_readiness=batch_readiness  # ✨ NEW: ส่งข้อมูลว่าพร้อมสร้าง Handover Code หรือไม่
+            batch_readiness=batch_readiness,  # ✨ NEW: ส่งข้อมูลว่าพร้อมสร้าง Handover Code หรือไม่
+            can_split=can_split,  # ✅ NEW: ส่งข้อมูลว่าสามารถแยก Batch ได้หรือไม่
+            current_depth=current_depth  # ✅ NEW: ระดับปัจจุบันของ Batch (0=Parent, 1=R1, 2=R2, ...)
         )
 
     @app.route("/batch/<batch_id>/summary")
@@ -1830,7 +2270,27 @@ def create_app():
             
             # Compute summary
             summary = compute_batch_summary(pending_orders)
-            
+
+            # ✅ Prepare order list for display
+            order_list = []
+            for order in pending_orders:
+                # Get shop name
+                shop_name = None
+                if order.shop_id:
+                    shop = db.session.get(Shop, order.shop_id)
+                    shop_name = shop.name if shop else None
+
+                order_list.append({
+                    "order_id": order.order_id,
+                    "sku": order.sku,
+                    "item_name": order.item_name,
+                    "qty": order.qty,
+                    "platform": order.platform,
+                    "carrier": order.carrier,
+                    "shop_name": shop_name,
+                    "sla_date": order.sla_date.isoformat() if order.sla_date else None
+                })
+
             return jsonify({
                 "success": True,
                 "next_run": next_run,
@@ -1839,7 +2299,8 @@ def create_app():
                 "platform": platform_std,
                 "total_orders": summary["total_orders"],
                 "carrier_summary": summary["carrier_summary"],
-                "shop_summary": summary["shop_summary"]
+                "shop_summary": summary["shop_summary"],
+                "orders": order_list  # ✅ Add order list
             })
             
         except Exception as e:
@@ -3085,14 +3546,24 @@ def create_app():
         if not batch:
             return jsonify({"success": False, "error": "ไม่พบ Batch"}), 404
 
-        # ตรวจสอบว่าเป็น Parent Batch (ไม่ใช่ Child)
-        if batch.parent_batch_id is not None:
+        # ✅ NEW: คำนวณระดับ (depth) ของ Batch นี้
+        # R1 = depth 1, R2 = depth 2, ..., R5 = depth 5
+        current_depth = 0
+        temp_batch = batch
+        while temp_batch.parent_batch_id is not None:
+            current_depth += 1
+            temp_batch = db.session.get(Batch, temp_batch.parent_batch_id)
+            if temp_batch is None:
+                break
+
+        # ถ้า Batch นี้เป็น R5 แล้ว → ไม่สามารถแยกต่อได้
+        if current_depth >= 5:
             return jsonify({
                 "success": False,
-                "error": "ไม่สามารถแยก Child Batch ได้ กรุณาแยกจาก Parent Batch"
+                "error": "ถึงขอบเขตแล้ว: Batch นี้อยู่ที่ระดับ R5 แล้ว ไม่สามารถแยกต่อได้"
             }), 400
 
-        # ตรวจสอบจำนวน Child Batch ที่มีอยู่แล้ว
+        # ตรวจสอบจำนวน Child Batch ที่มีอยู่แล้ว (สำหรับการสร้างหมายเลข sub_batch_number)
         existing_children = Batch.query.filter_by(parent_batch_id=batch_id).count()
         if existing_children >= 5:
             return jsonify({
@@ -3112,11 +3583,26 @@ def create_app():
 
         shortage_details = []  # รวบรวมรายละเอียด Shortage
 
+        # ✅ FIX: เช็คจาก ShortageQueue แทน shortage_qty field
+        # เพราะบางครั้ง shortage_qty ไม่ได้อัปเดตแต่มี Shortage Record อยู่
         for order in orders:
-            if order.shortage_qty > 0:
+            # เช็คว่ามี Shortage Record หรือไม่
+            has_shortage_record = ShortageQueue.query.filter(
+                ShortageQueue.order_line_id == order.id,
+                ShortageQueue.status.in_(['pending', 'waiting_stock', 'ready_to_pick'])
+            ).first()
+
+            # หรือเช็คจาก shortage_qty field
+            has_shortage_qty = (order.shortage_qty or 0) > 0
+
+            # หรือเช็คว่ายังหยิบไม่ครบ
+            not_fully_picked = order.picked_qty < order.qty
+
+            if has_shortage_record or has_shortage_qty or not_fully_picked:
                 shortage_orders.append(order)
+                qty_shortage = order.shortage_qty or (order.qty - order.picked_qty)
                 shortage_details.append(
-                    f"Order {order.order_id}: SKU {order.sku} ขาด {order.shortage_qty} ชิ้น"
+                    f"Order {order.order_id}: SKU {order.sku} ขาด {qty_shortage} ชิ้น"
                 )
             else:
                 complete_orders.append(order)
@@ -3437,6 +3923,28 @@ def create_app():
         batch.handover_confirmed_by_username = cu.username
         batch.handover_notes = notes
 
+        # ✅ Phase 0: Release Stock Reservation เมื่อยืนยันส่งมอบแล้ว
+        # Logic: released_qty = picked_qty + shortage_qty
+        # - picked_qty: ของที่หยิบได้จริง (ออกจากคลังแล้ว)
+        # - shortage_qty: ของที่ขาด (ไม่มีในสต็อกตั้งแต่แรก หรือถูก resolve แล้ว)
+        released_skus = {}
+        for order in orders:
+            sku = order.sku
+            # ✅ FIX: คำนวณ released_qty = picked_qty + shortage_qty
+            picked = order.picked_qty or 0
+            shortage = order.shortage_qty or 0
+            released = picked + shortage
+
+            if released > 0:
+                if sku not in released_skus:
+                    released_skus[sku] = 0
+                released_skus[sku] += released
+
+        # Release reservation for each SKU (ก่อน commit เพื่อให้อยู่ใน transaction เดียวกัน)
+        for sku, qty_released in released_skus.items():
+            release_stock_reservation(batch.batch_id, sku, qty_released, reason="handover_confirmed")
+
+        # ✅ Commit ทั้ง handover update และ stock release ในครั้งเดียว
         db.session.commit()
 
         # Audit log
@@ -4143,51 +4651,28 @@ def create_app():
                     deleted_count = OrderLine.query.delete()
                     messages.append(f"ลบออเดอร์ทั้งหมด: {deleted_count} รายการ")
 
-                elif scope == "batches_today":
-                    batches = Batch.query.filter(db.func.date(Batch.created_at) == today).all()
-                    deleted_count = len(batches)
-                    for batch in batches:
-                        OrderLine.query.filter(OrderLine.batch_id == batch.batch_id).update(
-                            {"batch_id": None, "batch_status": "pending"}
-                        )
-                        db.session.delete(batch)
-                    messages.append(f"ลบ Batch ของวันนี้: {deleted_count} Batch")
-
-                elif scope == "batches_week":
-                    week_ago = today - timedelta(days=7)
-                    batches = Batch.query.filter(db.func.date(Batch.created_at) >= week_ago).all()
-                    deleted_count = len(batches)
-                    for batch in batches:
-                        OrderLine.query.filter(OrderLine.batch_id == batch.batch_id).update(
-                            {"batch_id": None, "batch_status": "pending"}
-                        )
-                        db.session.delete(batch)
-                    messages.append(f"ลบ Batch สัปดาห์นี้: {deleted_count} Batch")
-
-                elif scope == "batches_unlocked":
-                    batches = Batch.query.filter(Batch.is_locked == False).all()
-                    deleted_count = len(batches)
-                    for batch in batches:
-                        OrderLine.query.filter(OrderLine.batch_id == batch.batch_id).update(
-                            {"batch_id": None, "batch_status": "pending"}
-                        )
-                        db.session.delete(batch)
-                    messages.append(f"ลบ Batch ที่ Unlocked: {deleted_count} Batch")
-
-                elif scope == "batches_completed":
-                    batches = Batch.query.filter(Batch.handover_confirmed == True).all()
-                    deleted_count = len(batches)
-                    for batch in batches:
-                        OrderLine.query.filter(OrderLine.batch_id == batch.batch_id).update(
-                            {"batch_id": None, "batch_status": "pending"}
-                        )
-                        db.session.delete(batch)
-                    messages.append(f"ลบ Batch ที่ส่งมอบแล้ว: {deleted_count} Batch")
-
-                elif scope == "batches_all":
-                    OrderLine.query.update({"batch_id": None, "batch_status": "pending"})
-                    deleted_count = Batch.query.delete()
-                    messages.append(f"ลบ Batch ทั้งหมด: {deleted_count} Batch")
+                elif scope in ["batches_today", "batches_week", "batches_unlocked", "batches_completed", "batches_all"]:
+                    # ⚠️ WARNING: Batch Deletion is DISABLED for production safety
+                    # Deleting batches can cause:
+                    # 1. reserved_qty leaks (stock incorrectly reserved)
+                    # 2. Loss of audit trail
+                    # 3. Data inconsistency
+                    #
+                    # If you need to clean up batches, use migration script instead:
+                    #   python migrations/run_phase0_migration.py
+                    #
+                    messages.append(
+                        "❌ การลบ Batch ถูกปิดใช้งานเพื่อความปลอดภัย\n\n"
+                        "เหตุผล:\n"
+                        "- ป้องกัน reserved_qty ค้างในระบบ\n"
+                        "- รักษา audit trail\n"
+                        "- หลีกเลี่ยงข้อมูลไม่สอดคล้อง\n\n"
+                        "หากต้องการทำความสะอาด Batch:\n"
+                        "1. ใช้ Unlock Batch แทน\n"
+                        "2. รัน migration: python migrations/run_phase0_migration.py\n"
+                        "3. ติดต่อ Admin"
+                    )
+                    continue  # Skip to next scope
 
                 elif scope == "products_all":
                     deleted_count = Product.query.delete()
@@ -4511,23 +4996,40 @@ def create_app():
             stock = Stock.query.filter_by(sku=sku).first()
             stock_qty = stock.qty if stock else 0
 
-            # ⚠️ เช็คว่ามี Shortage Records อยู่แล้วหรือไม่ (เฉพาะ pending)
+            # ⚠️ เช็คว่ามี Shortage Records อยู่แล้วหรือไม่ (ทุกสถานะยกเว้น resolved, cancelled, replaced)
             existing_shortage_records = ShortageQueue.query.filter(
                 ShortageQueue.sku == sku,
-                ShortageQueue.status == 'pending'
+                ShortageQueue.status.in_(['pending', 'waiting_stock', 'ready_to_pick'])
             ).join(OrderLine, ShortageQueue.order_line_id == OrderLine.id).filter(
                 OrderLine.accepted == True
             ).all()
 
-            # สร้างรายการออเดอร์ที่ต้องการ SKU นี้
+            # สร้างรายการออเดอร์ที่ต้องการ SKU นี้ + เพิ่มสถานะ Shortage
             order_list = []
             for order in orders:
+                # ✅ NEW: ดึงสถานะ Shortage Record สำหรับแต่ละ Order
+                shortage_status = None
+                shortage_reason = None
+                shortage_record = ShortageQueue.query.filter(
+                    ShortageQueue.sku == sku,
+                    ShortageQueue.order_line_id == order.id
+                ).order_by(ShortageQueue.created_at.desc()).first()
+
+                if shortage_record:
+                    shortage_status = shortage_record.status
+                    shortage_reason = shortage_record.shortage_reason  # ✅ FIX: ใช้ shortage_reason แทน reason
+
                 order_list.append({
                     "order_id": order.order_id,
                     "qty": order.qty,
                     "picked_qty": order.picked_qty or 0,
                     "shortage_qty": getattr(order, 'shortage_qty', 0) or 0,
-                    "status": order.dispatch_status
+                    "status": order.dispatch_status,
+                    # ✅ NEW: เพิ่มสถานะ Shortage
+                    "shortage_status": shortage_status,
+                    "shortage_reason": shortage_reason,
+                    # ✅ NEW: เพิ่ม SLA (order_time) แบบภาษาไทย
+                    "order_time": format_sla_thai(order.order_time) if order.order_time else ""
                 })
 
             return jsonify({
@@ -4538,6 +5040,8 @@ def create_app():
                 "existing_shortage_count": len(existing_shortage_records),
                 "model": product.model if product else "",
                 "stock_qty": stock_qty,
+                "reserved_qty": stock.reserved_qty if stock else 0,  # ✅ NEW: จำนวน Stock ที่จองไว้
+                "available_qty": stock.available_qty if stock else 0,  # ✅ NEW: Stock ที่ใช้ได้จริง
                 "total_need": total_need,
                 "total_picked": total_picked,
                 "total_shortage": total_shortage,
@@ -4649,7 +5153,47 @@ def create_app():
 
                         remaining_to_pick -= pick_this
 
+            # ✅ Phase 0: Release reservation สำหรับ SKU ที่หยิบครบแล้ว (ก่อน commit)
+            # เช็คว่าทุก order สำหรับ SKU นี้หยิบครบหรือยัง
+            all_orders_for_sku = OrderLine.query.filter_by(sku=sku, accepted=True).all()
+            total_need = sum(o.qty for o in all_orders_for_sku)
+            total_picked = sum(o.picked_qty or 0 for o in all_orders_for_sku)
+            total_shortage = sum(o.shortage_qty or 0 for o in all_orders_for_sku)
+
+            # ถ้า picked + shortage >= need แสดงว่า SKU นี้เสร็จแล้ว → release reservation
+            if (total_picked + total_shortage) >= total_need:
+                # Release reservation สำหรับ SKU นี้ทั้งหมด
+                release_stock_reservation("ALL_BATCHES", sku, total_need, reason="picking_completed")
+
+            # ✅ Commit ทั้ง picking update และ stock release ในครั้งเดียว
             db.session.commit()
+
+            # ✅ Auto-resolve Shortage Records when picked completely
+            # NOTE: reserved_qty จะถูก release ผ่าน helper function ที่บรรทัด 4839-4849 แล้ว
+            # ไม่ต้อง release ซ้ำที่นี่
+            auto_resolved_count = 0
+            if not mark_shortage:
+                for order in orders:
+                    remaining = order.qty - order.picked_qty
+
+                    if remaining == 0:  # หยิบครบแล้ว
+                        # ✅ FIX: ใช้ order_line_id เพื่อความแม่นยำ (1 order_id อาจมีหลาย SKU)
+                        shortages = ShortageQueue.query.filter(
+                            ShortageQueue.order_line_id == order.id,
+                            ShortageQueue.sku == sku,
+                            ShortageQueue.status.in_(['pending', 'waiting_stock', 'ready_to_pick'])
+                        ).all()
+
+                        for shortage in shortages:
+                            shortage.status = 'resolved'
+                            shortage.resolution_notes = (shortage.resolution_notes or "") + f'\n[{now}] ✅ Auto-resolved: หยิบครบแล้ว (Order: {order.order_id})'
+                            shortage.resolved_at = now
+                            shortage.resolved_by_user_id = cu.id
+                            shortage.resolved_by_username = cu.username
+                            auto_resolved_count += 1
+
+                if auto_resolved_count > 0:
+                    db.session.commit()
 
             # บันทึก Audit Log
             log_audit(
@@ -4659,7 +5203,8 @@ def create_app():
                     "qty_picked": qty,
                     "picked_by": cu.username,
                     "mark_shortage": mark_shortage,
-                    "orders_affected": len(picked_orders) + len(shortage_orders)
+                    "orders_affected": len(picked_orders) + len(shortage_orders),
+                    "auto_resolved_shortages": auto_resolved_count
                 }
             )
 
@@ -4722,7 +5267,21 @@ def create_app():
             if sku:
                 query = query.filter(ShortageQueue.sku.like(f"%{sku}%"))
 
-            shortages = query.order_by(ShortageQueue.created_at.desc()).all()
+            # ✅ Phase 4: SLA-based sorting
+            # Get all shortages first, then sort by SLA in Python
+            # (because SLA is in OrderLine table, not ShortageQueue)
+            shortages = query.all()
+
+            # ✅ Phase 4: Sort by SLA (earliest first), then by created_at
+            def get_sla_for_shortage(shortage):
+                order_line = shortage.order_line
+                if order_line and order_line.sla_date:
+                    return (False, order_line.sla_date, shortage.created_at)
+                else:
+                    # No SLA = last
+                    return (True, datetime.max.date(), shortage.created_at)
+
+            shortages = sorted(shortages, key=get_sla_for_shortage)
 
             # Summary counts
             summary = {
@@ -4742,6 +5301,35 @@ def create_app():
                 qty_picked_realtime = order_line.picked_qty if order_line else s.qty_picked
                 qty_shortage_realtime = max(0, s.qty_required - qty_picked_realtime)
 
+                # ✅ Phase 4: Add SLA information
+                sla_date = None
+                sla_status = None
+                sla_text = None
+                platform = None
+
+                if order_line:
+                    sla_date = str(order_line.sla_date) if order_line.sla_date else None
+                    platform = order_line.platform
+
+                    # Calculate SLA status
+                    if order_line.sla_date:
+                        from datetime import date
+                        today = date.today()
+                        if order_line.sla_date < today:
+                            sla_status = "overdue"
+                            days_overdue = (today - order_line.sla_date).days
+                            sla_text = f"เลยกำหนด {days_overdue} วัน"
+                        elif order_line.sla_date == today:
+                            sla_status = "today"
+                            sla_text = "วันนี้"
+                        elif order_line.sla_date == today + timedelta(days=1):
+                            sla_status = "tomorrow"
+                            sla_text = "พรุ่งนี้"
+                        else:
+                            days_left = (order_line.sla_date - today).days
+                            sla_status = "upcoming"
+                            sla_text = f"อีก {days_left} วัน"
+
                 shortages_data.append({
                     "id": s.id,
                     "order_id": s.order_id,
@@ -4751,11 +5339,18 @@ def create_app():
                     "qty_picked": qty_picked_realtime,  # ✅ Real-time from OrderLine
                     "qty_shortage": qty_shortage_realtime,  # ✅ Recalculated
                     "reason": s.shortage_reason,
+                    "shortage_type": s.shortage_type,  # ✅ Phase 2: PRE_PICK or POST_PICK
+                    "notes": s.notes,  # ✅ Priority 1.3: Notes from picker
                     "status": s.status,
                     "created_by": s.created_by_username,
                     "created_at": to_thai_be(s.created_at) if s.created_at else "-",
                     "resolved_at": to_thai_be(s.resolved_at) if s.resolved_at else None,
-                    "resolved_by": s.resolved_by_username
+                    "resolved_by": s.resolved_by_username,
+                    # ✅ Phase 4: SLA fields
+                    "sla_date": sla_date,
+                    "sla_status": sla_status,
+                    "sla_text": sla_text,
+                    "platform": platform
                 })
 
             return jsonify({
@@ -4840,6 +5435,25 @@ def create_app():
             shortage.resolved_by_user_id = cu.id
             shortage.resolved_by_username = cu.username
 
+            # ✅ Priority 2.2: Log transaction when resolving/cancelling shortage
+            if action in ['resolved', 'cancel']:
+                # Note: We don't reverse the DAMAGE transaction
+                # Instead, we log the resolution action for audit trail
+                # The actual stock adjustment (if any) happens elsewhere
+                log_stock_transaction(
+                    sku=shortage.sku,
+                    transaction_type='ADJUST',
+                    quantity=0,  # No actual stock movement, just recording the action
+                    reason_code=f'SHORTAGE_{action.upper()}',
+                    reference_type='shortage',
+                    reference_id=str(shortage.id),
+                    notes=f"Shortage {action} by {cu.username}: {notes}" if notes else f"Shortage {action} by {cu.username}"
+                )
+                app.logger.info(
+                    f"📝 Logged shortage {action}: {shortage.order_id} | "
+                    f"SKU: {shortage.sku} | Qty: {shortage.qty_shortage}"
+                )
+
             # ✅ Phase 2.2: อัปเดต shortage_qty ใน OrderLine เมื่อ resolve/cancel/replace
             if action in ['cancel', 'resolved', 'replace_sku']:
                 order_line = shortage.order_line
@@ -4848,6 +5462,17 @@ def create_app():
                     current_shortage = order_line.shortage_qty or 0
                     order_line.shortage_qty = max(0, current_shortage - shortage.qty_shortage)
 
+            # ✅ Phase 0: Release reservation เมื่อ shortage ถูก cancel/resolve (ก่อน commit)
+            # เพราะ cancel = ไม่ต้องการของแล้ว, resolved = จัดการเรียบร้อยแล้ว
+            if action in ['cancel', 'resolved']:
+                release_stock_reservation(
+                    shortage.original_batch_id or "UNKNOWN",
+                    shortage.sku,
+                    shortage.qty_shortage,
+                    reason=f"shortage_{action}"
+                )
+
+            # ✅ Commit ทั้ง shortage resolution และ stock release ในครั้งเดียว
             db.session.commit()
 
             # Audit Log
@@ -5355,13 +5980,14 @@ def create_app():
     @app.route("/api/shortage/mark", methods=["POST"])
     @login_required
     def api_mark_shortage():
-        """API สำหรับบันทึก Shortage และเพิ่มเข้า Shortage Queue"""
+        """API สำหรับบันทึก Shortage และเพิ่มเข้า Shortage Queue (✅ Phase 2: With Reason Code)"""
         try:
             data = request.get_json()
             sku = data.get("sku", "").strip()
             picked_qty = int(data.get("picked_qty", 0))
             shortage_qty = int(data.get("shortage_qty", 0))
             reason = data.get("reason", "").strip()
+            notes = data.get("notes", "").strip()  # ✅ Phase 2: Accept notes from picker
 
             if not sku:
                 return jsonify({"success": False, "error": "กรุณาระบุ SKU"}), 400
@@ -5371,6 +5997,21 @@ def create_app():
 
             if not reason:
                 return jsonify({"success": False, "error": "กรุณาระบุเหตุผล"}), 400
+
+            # ✅ FIX: เช็คว่ามี Shortage Record อยู่แล้วหรือไม่ (ป้องกันการบันทึกซ้ำ)
+            existing_shortage = ShortageQueue.query.filter(
+                ShortageQueue.sku == sku,
+                ShortageQueue.status.in_(['pending', 'waiting_stock', 'ready_to_pick'])
+            ).join(OrderLine, ShortageQueue.order_line_id == OrderLine.id).filter(
+                OrderLine.accepted == True,
+                OrderLine.dispatch_status != "dispatched"
+            ).first()
+
+            if existing_shortage:
+                return jsonify({
+                    "success": False,
+                    "error": f"⚠️ SKU นี้มี Shortage Record อยู่แล้ว!\n\nสถานะ: {existing_shortage.status}\nกรุณาไปจัดการที่หน้า Shortage Queue แทน\n\nหากต้องการอัปเดตข้อมูล กรุณาใช้ปุ่ม 'แก้ไข Shortage'"
+                }), 400
 
             # หาออเดอร์ที่ยังหยิบไม่ครบ (จาก Batch ที่ Accept แล้ว)
             orders = OrderLine.query.filter(
@@ -5439,7 +6080,7 @@ def create_app():
                 if need > 0:
                     shortage_this = min(need, remaining_shortage)
 
-                    # สร้าง Shortage Record
+                    # ✅ Phase 2: Create Shortage Record with reason code and type
                     shortage_record = ShortageQueue(
                         order_line_id=order.id,
                         order_id=order.order_id,
@@ -5449,12 +6090,24 @@ def create_app():
                         qty_shortage=shortage_this,
                         original_batch_id=order.batch_id,
                         shortage_reason=reason,
-                        shortage_type='complete' if shortage_this == need else 'partial',
+                        shortage_type='POST_PICK',  # ✅ Phase 2: POST_PICK (found during picking)
                         status='pending',
+                        notes=notes,  # ✅ Phase 2: Save additional notes from picker
                         created_by_user_id=cu.id,
                         created_by_username=cu.username
                     )
                     db.session.add(shortage_record)
+
+                    # ✅ Phase 2: Log transaction for shortage (DAMAGE/ADJUST)
+                    log_stock_transaction(
+                        sku=sku,
+                        transaction_type='DAMAGE',
+                        quantity=-shortage_this,  # Negative (減少)
+                        reason_code=reason,
+                        reference_type='shortage',
+                        reference_id=str(order.id),  # Use order_line_id as reference
+                        notes=f"Shortage marked by {cu.username}: {reason}" + (f" | {notes}" if notes else "")
+                    )
 
                     # อัปเดตสถานะออเดอร์
                     if order.picked_qty == 0:
@@ -5622,6 +6275,8 @@ def create_app():
                     "qty_picked": qty_picked_realtime,
                     "qty_shortage": s.qty_shortage,
                     "reason": s.shortage_reason,
+                    "shortage_type": s.shortage_type,  # ✅ Priority 1.2: Added shortage_type
+                    "notes": s.notes,  # ✅ Priority 1.2: Added notes field
                     "status": s.status,
                     "created_by": s.created_by_username,
                     "created_at": to_thai_be(s.created_at) if s.created_at else "-",
@@ -5643,6 +6298,314 @@ def create_app():
                 "success": False,
                 "error": f"เกิดข้อผิดพลาด: {str(e)}"
             }), 500
+
+    @app.route("/api/shortage/change-status", methods=["POST"])
+    @login_required
+    def api_shortage_change_status():
+        """
+        API สำหรับเปลี่ยนสถานะ Shortage Record โดยตรง (Admin use)
+        รองรับการเปลี่ยนเป็น: pending, waiting_stock, ready_to_pick, cancelled, replaced, resolved
+        """
+        try:
+            data = request.get_json()
+            shortage_id = data.get("shortage_id")
+            new_status = data.get("status", "").strip()
+            force = data.get("force", False)  # สำหรับ Force Resolve
+            notes = data.get("notes", "").strip()
+
+            if not shortage_id or not new_status:
+                return jsonify({"success": False, "error": "ข้อมูลไม่ครบ"}), 400
+
+            # Validate status
+            valid_statuses = ["pending", "waiting_stock", "ready_to_pick", "cancelled", "replaced", "resolved"]
+            if new_status not in valid_statuses:
+                return jsonify({"success": False, "error": f"สถานะไม่ถูกต้อง: {new_status}"}), 400
+
+            shortage = db.session.get(ShortageQueue, shortage_id)
+            if not shortage:
+                return jsonify({"success": False, "error": "ไม่พบ Shortage Record"}), 404
+
+            cu = current_user()
+            now = now_thai()
+
+            # ✅ Validation: ถ้าเปลี่ยนเป็น 'resolved' ต้องตรวจสอบว่าหยิบครบหรือยัง
+            if new_status == "resolved" and not force:
+                order_line = shortage.order_line
+                if order_line:
+                    expected_picked = shortage.qty_required - shortage.qty_shortage
+                    actual_picked = order_line.picked_qty or 0
+
+                    if actual_picked < expected_picked:
+                        return jsonify({
+                            "success": False,
+                            "warning": True,  # Flag สำหรับแสดง Confirmation Dialog
+                            "error": f"⚠️ ยังหยิบไม่ครบ!\n\nSKU: {shortage.sku}\nต้องหยิบ: {expected_picked} ชิ้น\nหยิบแล้ว: {actual_picked} ชิ้น\nขาดอีก: {expected_picked - actual_picked} ชิ้น\n\nคุณต้องการบังคับเปลี่ยนสถานะหรือไม่?",
+                            "shortage_id": shortage_id,
+                            "expected_picked": expected_picked,
+                            "actual_picked": actual_picked
+                        }), 400
+
+            # Update status
+            old_status = shortage.status
+            shortage.status = new_status
+
+            # Update metadata
+            if new_status in ["cancelled", "replaced", "resolved"]:
+                shortage.resolved_at = now
+                shortage.resolved_by_user_id = cu.id
+                shortage.resolved_by_username = cu.username
+
+            if notes:
+                shortage.resolution_notes = (shortage.resolution_notes or "") + f"\n[{now}] Status changed: {old_status} → {new_status} by {cu.username}: {notes}"
+
+            # ✅ ลด shortage_qty ใน OrderLine เมื่อเปลี่ยนเป็น resolved/cancelled/replaced
+            if new_status in ['cancelled', 'resolved', 'replaced']:
+                order_line = shortage.order_line
+                if order_line:
+                    current_shortage = order_line.shortage_qty or 0
+                    order_line.shortage_qty = max(0, current_shortage - shortage.qty_shortage)
+
+            db.session.commit()
+
+            # Audit Log
+            log_audit(
+                action="shortage_status_change",
+                details={
+                    "shortage_id": shortage_id,
+                    "order_id": shortage.order_id,
+                    "sku": shortage.sku,
+                    "old_status": old_status,
+                    "new_status": new_status,
+                    "force": force,
+                    "changed_by": cu.username
+                }
+            )
+
+            # ✅ Recalculate Batch Progress
+            batch_progress = None
+            if shortage.original_batch_id:
+                try:
+                    progress_data = calculate_batch_progress(shortage.original_batch_id)
+                    batch_progress = {
+                        "batch_id": shortage.original_batch_id,
+                        "progress_percent": progress_data["progress_percent"],
+                        "completed_qty": progress_data["completed_qty"],
+                        "total_qty": progress_data["total_qty"]
+                    }
+                except Exception as e:
+                    print(f"Warning: Could not calculate batch progress: {e}")
+
+            return jsonify({
+                "success": True,
+                "message": f"เปลี่ยนสถานะสำเร็จ: {old_status} → {new_status}",
+                "old_status": old_status,
+                "new_status": new_status,
+                "batch_progress": batch_progress
+            })
+
+        except Exception as e:
+            print(f"ERROR in /api/shortage/change-status: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                "success": False,
+                "error": f"เกิดข้อผิดพลาด: {str(e)}"
+            }), 500
+
+    # -----------------------
+    # Shortage Analytics Dashboard (Option 2 - Phase 3)
+    # -----------------------
+    @app.route("/analytics/shortage")
+    @login_required
+    def shortage_analytics():
+        """
+        Shortage Analytics Dashboard
+        Displays root cause analysis and trends for shortage management
+        """
+        # ✅ Priority 1.4: Add error handling
+        try:
+            from datetime import date, timedelta
+            from sqlalchemy import func, case
+
+            # Date range for analysis (default: last 30 days)
+            days_range = request.args.get("days", default=30, type=int)
+
+            # Validate days_range
+            if days_range not in [7, 30, 90]:
+                days_range = 30
+
+            end_date = date.today()
+            start_date = end_date - timedelta(days=days_range)
+
+            # ========== 1. Pre-pick vs Post-pick Breakdown ==========
+            type_breakdown = db.session.query(
+                ShortageQueue.shortage_type,
+                func.count(ShortageQueue.id).label('count'),
+                func.sum(ShortageQueue.qty_shortage).label('total_qty')
+            ).filter(
+                ShortageQueue.created_at >= start_date
+            ).group_by(
+                ShortageQueue.shortage_type
+            ).all()
+
+            pre_pick_count = 0
+            post_pick_count = 0
+            no_type_count = 0
+            pre_pick_qty = 0
+            post_pick_qty = 0
+
+            for row in type_breakdown:
+                if row.shortage_type == 'PRE_PICK':
+                    pre_pick_count = row.count
+                    pre_pick_qty = row.total_qty or 0
+                elif row.shortage_type == 'POST_PICK':
+                    post_pick_count = row.count
+                    post_pick_qty = row.total_qty or 0
+                else:
+                    no_type_count += row.count
+
+            total_shortages = pre_pick_count + post_pick_count + no_type_count
+
+            # ========== 2. Shortage by Reason Code ==========
+            reason_breakdown = db.session.query(
+                ShortageQueue.shortage_reason,
+                func.count(ShortageQueue.id).label('count'),
+                func.sum(ShortageQueue.qty_shortage).label('total_qty')
+            ).filter(
+                ShortageQueue.created_at >= start_date
+            ).group_by(
+                ShortageQueue.shortage_reason
+            ).order_by(
+                func.count(ShortageQueue.id).desc()
+            ).all()
+
+            # ========== 3. Top 10 SKUs with Most Shortages ==========
+            top_skus = db.session.query(
+                ShortageQueue.sku,
+                func.count(ShortageQueue.id).label('shortage_count'),
+                func.sum(ShortageQueue.qty_shortage).label('total_shortage_qty')
+            ).filter(
+                ShortageQueue.created_at >= start_date
+            ).group_by(
+                ShortageQueue.sku
+            ).order_by(
+                func.sum(ShortageQueue.qty_shortage).desc()
+            ).limit(10).all()
+
+            # Get product names for top SKUs (using OrderLine.item_name)
+            top_skus_data = []
+            for sku_row in top_skus:
+                # Get first OrderLine with this SKU to get product name
+                order_line = OrderLine.query.filter_by(sku=sku_row.sku).first()
+                product_name = order_line.item_name if order_line else '-'
+
+                top_skus_data.append({
+                    'sku': sku_row.sku,
+                    'product_name': product_name,
+                    'shortage_count': sku_row.shortage_count,
+                    'total_shortage_qty': sku_row.total_shortage_qty
+                })
+
+            # ========== 4. Daily Shortage Trend (Last 30 Days) ==========
+            # Generate date range
+            date_range = []
+            for i in range(days_range):
+                date_range.append(start_date + timedelta(days=i))
+
+            # Query daily shortage counts
+            daily_shortages = db.session.query(
+                func.date(ShortageQueue.created_at).label('date'),
+                func.count(ShortageQueue.id).label('count'),
+                func.sum(ShortageQueue.qty_shortage).label('total_qty')
+            ).filter(
+                ShortageQueue.created_at >= start_date
+            ).group_by(
+                func.date(ShortageQueue.created_at)
+            ).all()
+
+            # Create dictionary for easy lookup
+            daily_data = {row.date: {'count': row.count, 'qty': row.total_qty or 0} for row in daily_shortages}
+
+            # Fill in missing dates with zeros
+            trend_data = []
+            for d in date_range:
+                trend_data.append({
+                    'date': d.strftime('%Y-%m-%d'),
+                    'date_thai': d.strftime('%d/%m') + f'/{d.year + 543}',
+                    'count': daily_data.get(d, {}).get('count', 0),
+                    'qty': daily_data.get(d, {}).get('qty', 0)
+                })
+
+            # ========== 5. Shortage Status Summary ==========
+            status_summary = db.session.query(
+                ShortageQueue.status,
+                func.count(ShortageQueue.id).label('count')
+            ).filter(
+                ShortageQueue.created_at >= start_date
+            ).group_by(
+                ShortageQueue.status
+            ).all()
+
+            status_counts = {row.status: row.count for row in status_summary}
+
+            # ========== 6. Reason Code Labels (for chart) ==========
+            reason_labels = {
+                'CANT_FIND': '🔍 หาไม่เจอ',
+                'FOUND_DAMAGED': '💔 ของชำรุด',
+                'MISPLACED': '📦 วางผิดที่',
+                'BARCODE_MISSING': '🏷️ บาร์โค้ดหลุด',
+                'STOCK_NOT_FOUND': '❌ ไม่มีในระบบ',
+                'OTHER': '📝 อื่นๆ'
+            }
+
+            # ========== 7. Shortage Logs (Latest 20) ==========
+            shortage_logs = ShortageQueue.query.filter(
+                ShortageQueue.created_at >= start_date
+            ).order_by(
+                ShortageQueue.created_at.desc()
+            ).limit(20).all()
+
+            # ✅ Priority 2.4: Pass empty state flag to template
+            return render_template(
+                "shortage_analytics.html",
+                # Date range
+                days_range=days_range,
+                start_date=start_date,
+                end_date=end_date,
+
+                # Type breakdown
+                pre_pick_count=pre_pick_count,
+                post_pick_count=post_pick_count,
+                no_type_count=no_type_count,
+                total_shortages=total_shortages,
+                pre_pick_qty=pre_pick_qty,
+                post_pick_qty=post_pick_qty,
+
+                # Reason breakdown
+                reason_breakdown=reason_breakdown,
+                reason_labels=reason_labels,
+
+                # Top SKUs
+                top_skus=top_skus_data,
+
+                # Trend data
+                trend_data=trend_data,
+
+                # Status summary
+                status_counts=status_counts,
+
+                # Shortage logs
+                shortage_logs=shortage_logs,
+
+                # Empty state
+                empty_state=(total_shortages == 0)
+            )
+
+        except Exception as e:
+            flash(f"เกิดข้อผิดพลาดในการโหลดข้อมูล Analytics: {str(e)}", "danger")
+            import traceback
+            traceback.print_exc()
+            return redirect(url_for("dashboard"))
 
     # -----------------------
     # Scan Tracking (ส่งของ)

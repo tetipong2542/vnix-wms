@@ -38,12 +38,60 @@
           <!-- Step 2: Preview and Confirm -->
           <h5 class="mb-3">ตัวอย่าง Batch สำหรับ {{ platform }}</h5>
 
+          <!-- ✅ Phase 2: SLA-based Allocation Info -->
           <div class="alert alert-info">
-            <h6>สรุปออเดอร์ที่จะถูกรวมเข้า Batch:</h6>
-            <ul>
-              <li><strong>จำนวนออเดอร์ทั้งหมด:</strong> {{ preview.total_orders }}</li>
+            <h6><i data-lucide="info"></i> สรุปการจัดสรรสต็อกตาม SLA:</h6>
+            <ul class="mb-0">
+              <li><strong>ออเดอร์ที่จะเข้า Batch:</strong> {{ preview.allocation.batch_orders }} ออเดอร์</li>
+              {% if preview.allocation.waiting_orders > 0 %}
+              <li><strong>ออเดอร์ที่รอสต็อก:</strong> <span class="text-warning">{{ preview.allocation.waiting_orders }} ออเดอร์</span></li>
+              {% endif %}
+              {% if preview.allocation.batch_sla %}
+              <li><strong>SLA ของ Batch:</strong> <span class="badge bg-primary">{{ preview.allocation.batch_sla }}</span></li>
+              {% endif %}
             </ul>
           </div>
+
+          {% if waiting_orders and waiting_orders|length > 0 %}
+          <!-- ✅ Phase 2: Waiting Orders Warning -->
+          <div class="alert alert-warning">
+            <h6><i data-lucide="clock"></i> ออเดอร์ที่จะถูกทำเครื่องหมายเป็น "รอสต็อก":</h6>
+            <p class="small mb-2">ออเดอร์เหล่านี้จะไม่ถูกรวมเข้า Batch เนื่องจากสต็อกไม่เพียงพอ และจะถูกจัดสรรใหม่เมื่อมีสต็อกเข้า</p>
+            <table class="table table-sm table-bordered">
+              <thead>
+                <tr>
+                  <th>Order ID</th>
+                  <th>SKU</th>
+                  <th>จำนวน</th>
+                  <th>SLA</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for order in waiting_orders[:10] %}
+                <tr>
+                  <td><small>{{ order.order_id }}</small></td>
+                  <td>{{ order.sku }}</td>
+                  <td>{{ order.qty }}</td>
+                  <td>
+                    {% if order.sla_date %}
+                    <span class="badge bg-warning text-dark">{{ order.sla_date }}</span>
+                    {% else %}
+                    <span class="text-muted">-</span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+                {% if waiting_orders|length > 10 %}
+                <tr>
+                  <td colspan="4" class="text-center text-muted">
+                    <small>... และอีก {{ waiting_orders|length - 10 }} ออเดอร์</small>
+                  </td>
+                </tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
 
           <!-- Carrier Summary -->
           <div class="card mb-3">
@@ -51,29 +99,31 @@
               <strong>แยกตามขนส่ง (Carrier)</strong>
             </div>
             <div class="card-body">
-              <table class="table table-sm">
-                <thead>
-                  <tr>
-                    <th>Carrier</th>
-                    <th class="text-end">จำนวนออเดอร์</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for carrier, count in preview.carrier_summary.items() %}
-                  <tr>
-                    <td>
-                      {% if carrier == 'SPX' %}<span class="badge bg-danger">SPX</span>
-                      {% elif carrier == 'Flash' %}<span class="badge bg-warning text-dark">Flash</span>
-                      {% elif carrier == 'LEX' %}<span class="badge bg-primary">LEX</span>
-                      {% elif carrier == 'J&T' %}<span class="badge bg-success">J&T</span>
-                      {% else %}<span class="badge bg-secondary">{{ carrier }}</span>
-                      {% endif %}
-                    </td>
-                    <td class="text-end"><strong>{{ count }}</strong></td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
+              <div class="table-responsive">
+                <table class="table table-sm table-hover">
+                  <thead>
+                    <tr>
+                      <th>Carrier</th>
+                      <th class="text-end">จำนวนออเดอร์</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for carrier, count in preview.carrier_summary.items() %}
+                    <tr>
+                      <td>
+                        {% if carrier == 'SPX' %}<span class="badge bg-danger">SPX</span>
+                        {% elif carrier == 'Flash' %}<span class="badge bg-warning text-dark">Flash</span>
+                        {% elif carrier == 'LEX' %}<span class="badge bg-primary">LEX</span>
+                        {% elif carrier == 'J&T' %}<span class="badge bg-success">J&T</span>
+                        {% else %}<span class="badge bg-secondary">{{ carrier }}</span>
+                        {% endif %}
+                      </td>
+                      <td class="text-end"><strong>{{ count }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
 
@@ -83,24 +133,221 @@
               <strong>แยกตามร้าน (Shop)</strong>
             </div>
             <div class="card-body">
-              <table class="table table-sm">
-                <thead>
-                  <tr>
-                    <th>ชื่อร้าน</th>
-                    <th class="text-end">จำนวนออเดอร์</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for shop, count in preview.shop_summary.items() %}
-                  <tr>
-                    <td>{{ shop }}</td>
-                    <td class="text-end"><strong>{{ count }}</strong></td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
+              <div class="table-responsive">
+                <table class="table table-sm table-hover">
+                  <thead>
+                    <tr>
+                      <th>ชื่อร้าน</th>
+                      <th class="text-end">จำนวนออเดอร์</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for shop, count in preview.shop_summary.items() %}
+                    <tr>
+                      <td>{{ shop }}</td>
+                      <td class="text-end"><strong>{{ count }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
+
+          <!-- ✅ Order List Table with Preview + Toggle -->
+          {% if batch_orders and batch_orders|length > 0 %}
+          <div class="card mb-3" id="orderListCard">
+            <div class="card-header bg-success text-white">
+              <strong><i data-lucide="list"></i> รายการออเดอร์ใน Batch (<span id="orderCountDisplay">{{ batch_orders|length }}</span> รายการ)</strong>
+            </div>
+            <div class="card-body">
+              <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                <table class="table table-sm table-bordered table-hover" id="batchOrderTable" style="font-size: 0.85rem;">
+                  <thead class="table-dark sticky-top">
+                    <tr>
+                      <th class="text-center" style="min-width: 40px;">#</th>
+                      <th style="min-width: 100px;">Order ID</th>
+                      <th style="min-width: 100px;">SKU</th>
+                      <th class="d-none d-lg-table-cell" style="min-width: 150px;">รายการสินค้า</th>
+                      <th class="text-center" style="min-width: 60px;">จำนวน</th>
+                      <th style="min-width: 80px;">Platform</th>
+                      <th class="d-none d-md-table-cell" style="min-width: 80px;">Carrier</th>
+                      <th class="d-none d-xl-table-cell" style="min-width: 70px;">Shop</th>
+                      <th class="d-none d-md-table-cell" style="min-width: 90px;">SLA</th>
+                    </tr>
+                  </thead>
+                  <tbody id="batchOrderTableBody">
+                    {% set preview_limit = 15 %}
+                    {% for order in batch_orders[:preview_limit] %}
+                    <tr class="order-row">
+                      <td class="text-center">{{ loop.index }}</td>
+                      <td><small>{{ order.order_id }}</small></td>
+                      <td><code style="font-size: 0.75rem;">{{ order.sku }}</code></td>
+                      <td class="d-none d-lg-table-cell"><small>{{ order.item_name }}</small></td>
+                      <td class="text-center"><strong>{{ order.qty }}</strong></td>
+                      <td>
+                        {% if order.platform == 'Shopee' %}
+                          <span class="badge bg-danger">Shopee</span>
+                        {% elif order.platform == 'Lazada' %}
+                          <span class="badge bg-primary">Lazada</span>
+                        {% elif order.platform == 'TikTok' %}
+                          <span class="badge bg-dark">TikTok</span>
+                        {% else %}
+                          <span class="badge bg-secondary">{{ order.platform }}</span>
+                        {% endif %}
+                      </td>
+                      <td class="d-none d-md-table-cell">
+                        {% if order.carrier %}
+                          {% if order.carrier == 'SPX' %}
+                            <span class="badge bg-danger">SPX</span>
+                          {% elif order.carrier == 'Flash' %}
+                            <span class="badge bg-warning text-dark">Flash</span>
+                          {% elif order.carrier == 'LEX' %}
+                            <span class="badge bg-primary">LEX</span>
+                          {% elif order.carrier == 'J&T' %}
+                            <span class="badge bg-success">J&T</span>
+                          {% else %}
+                            <span class="badge bg-secondary">{{ order.carrier }}</span>
+                          {% endif %}
+                        {% else %}
+                          <span class="text-muted">-</span>
+                        {% endif %}
+                      </td>
+                      <td class="d-none d-xl-table-cell text-center">
+                        {% if order.shop_id %}
+                          <span class="badge bg-light text-dark">{{ order.shop_id }}</span>
+                        {% else %}
+                          <span class="text-muted">-</span>
+                        {% endif %}
+                      </td>
+                      <td class="d-none d-md-table-cell">
+                        {% if order.sla_date %}
+                          <span class="badge bg-primary">{{ order.sla_date }}</span>
+                        {% else %}
+                          <span class="text-muted">-</span>
+                        {% endif %}
+                      </td>
+                    </tr>
+                    {% endfor %}
+
+                    <!-- Hidden rows (will be shown when "Show All" is clicked) -->
+                    {% if batch_orders|length > preview_limit %}
+                      {% for order in batch_orders[preview_limit:] %}
+                      <tr class="order-row order-row-hidden" style="display: none;">
+                        <td class="text-center">{{ loop.index + preview_limit }}</td>
+                        <td><small>{{ order.order_id }}</small></td>
+                        <td><code style="font-size: 0.75rem;">{{ order.sku }}</code></td>
+                        <td class="d-none d-lg-table-cell"><small>{{ order.item_name }}</small></td>
+                        <td class="text-center"><strong>{{ order.qty }}</strong></td>
+                        <td>
+                          {% if order.platform == 'Shopee' %}
+                            <span class="badge bg-danger">Shopee</span>
+                          {% elif order.platform == 'Lazada' %}
+                            <span class="badge bg-primary">Lazada</span>
+                          {% elif order.platform == 'TikTok' %}
+                            <span class="badge bg-dark">TikTok</span>
+                          {% else %}
+                            <span class="badge bg-secondary">{{ order.platform }}</span>
+                          {% endif %}
+                        </td>
+                        <td class="d-none d-md-table-cell">
+                          {% if order.carrier %}
+                            {% if order.carrier == 'SPX' %}
+                              <span class="badge bg-danger">SPX</span>
+                            {% elif order.carrier == 'Flash' %}
+                              <span class="badge bg-warning text-dark">Flash</span>
+                            {% elif order.carrier == 'LEX' %}
+                              <span class="badge bg-primary">LEX</span>
+                            {% elif order.carrier == 'J&T' %}
+                              <span class="badge bg-success">J&T</span>
+                            {% else %}
+                              <span class="badge bg-secondary">{{ order.carrier }}</span>
+                            {% endif %}
+                          {% else %}
+                            <span class="text-muted">-</span>
+                          {% endif %}
+                        </td>
+                        <td class="d-none d-xl-table-cell text-center">
+                          {% if order.shop_id %}
+                            <span class="badge bg-light text-dark">{{ order.shop_id }}</span>
+                          {% else %}
+                            <span class="text-muted">-</span>
+                          {% endif %}
+                        </td>
+                        <td class="d-none d-md-table-cell">
+                          {% if order.sla_date %}
+                            <span class="badge bg-primary">{{ order.sla_date }}</span>
+                          {% else %}
+                            <span class="text-muted">-</span>
+                          {% endif %}
+                        </td>
+                      </tr>
+                      {% endfor %}
+                    {% endif %}
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Show All Button -->
+              {% if batch_orders|length > preview_limit %}
+              <div class="text-center py-3 border-top" id="showAllBtnContainer">
+                <button class="btn btn-outline-success" id="showAllBtn" onclick="toggleShowAllOrders()">
+                  <i data-lucide="chevrons-down"></i>
+                  แสดงทั้งหมด (<span id="remainingCount">{{ batch_orders|length - preview_limit }}</span> รายการที่เหลือ)
+                </button>
+              </div>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Hidden data for JavaScript -->
+          <script>
+            const TOTAL_ORDERS = {{ batch_orders|length }};
+            const PREVIEW_LIMIT = 15;
+            let isShowingAll = false;
+
+            function toggleShowAllOrders() {
+              if (!isShowingAll) {
+                // Show all rows
+                document.querySelectorAll('.order-row-hidden').forEach(row => {
+                  row.style.display = '';
+                });
+
+                // Update button
+                const btn = document.getElementById('showAllBtn');
+                btn.innerHTML = '<i data-lucide="chevrons-up"></i> ซ่อนรายการ';
+                btn.classList.remove('btn-outline-success');
+                btn.classList.add('btn-outline-secondary');
+
+                // Update display
+                document.getElementById('orderCountDisplay').textContent = TOTAL_ORDERS + ' (แสดงทั้งหมด)';
+
+                isShowingAll = true;
+              } else {
+                // Hide extra rows
+                document.querySelectorAll('.order-row-hidden').forEach(row => {
+                  row.style.display = 'none';
+                });
+
+                // Update button
+                const btn = document.getElementById('showAllBtn');
+                btn.innerHTML = `<i data-lucide="chevrons-down"></i> แสดงทั้งหมด (<span id="remainingCount">${TOTAL_ORDERS - PREVIEW_LIMIT}</span> รายการที่เหลือ)`;
+                btn.classList.remove('btn-outline-secondary');
+                btn.classList.add('btn-outline-success');
+
+                // Update display
+                document.getElementById('orderCountDisplay').textContent = TOTAL_ORDERS;
+
+                isShowingAll = false;
+              }
+
+              // Refresh Lucide icons
+              if (window.lucide) {
+                lucide.createIcons();
+              }
+            }
+          </script>
+          {% endif %}
 
           <!-- Confirmation Form -->
           <div class="card border-success">

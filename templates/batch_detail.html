@@ -361,7 +361,8 @@
                   <th class="text-center" style="width: 6%;" title="ต้องหยิบอีกกี่ชิ้นถึงจะครบ">ต้องการอีก</th>
                   <th class="text-center" style="width: 6%;" title="จำนวนที่ Shortage (ขาดแต่จัดการแล้ว)">ขาด</th>
                   <th class="text-center" style="width: 12%;">สถานะ</th>
-                  <th class="text-center" style="width: 18%;">Actions</th>
+                  <th class="text-center" style="width: 10%;" title="SLA เร็วที่สุดของ SKU นี้">SLA</th>
+                  <th class="text-center" style="width: 16%;">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -376,9 +377,19 @@
                     </div>
                   </td>
                   <td class="text-center">
-                    <span class="badge {% if item.stock_qty >= item.total_need %}bg-success{% elif item.stock_qty > 0 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
-                      {{ item.stock_qty }}
-                    </span>
+                    <!-- ✅ แสดง Available Stock (Total - Reserved) -->
+                    <div>
+                      <span class="badge {% if item.stock_qty >= item.total_need %}bg-success{% elif item.stock_qty > 0 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                        {{ item.stock_qty }}
+                      </span>
+                    </div>
+                    {% if item.get('reserved_qty', 0) > 0 %}
+                    <div class="mt-1">
+                      <small class="text-muted" title="Reserved = จองไว้ให้ Batch อื่น">
+                        (จอง: {{ item.reserved_qty }})
+                      </small>
+                    </div>
+                    {% endif %}
                   </td>
                   <td class="text-center fw-bold">{{ item.total_need }}</td>
                   <td class="text-center">
@@ -405,7 +416,15 @@
                     </span>
                   </td>
                   <td class="text-center">
+                    {% if item.earliest_sla %}
+                    <span class="badge bg-info">{{ item.earliest_sla }}</span>
+                    {% else %}
+                    <span class="text-muted">-</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-center">
                     {% if item.actual_shortage > 0 %}
+                      <!-- ✅ แสดงปุ่ม Actions เฉพาะเมื่อมีการแจ้ง Shortage แล้วจริงๆ -->
                       <button class="btn btn-sm btn-warning mb-1" onclick="viewShortageReason('{{ item.sku }}', '{{ batch.batch_id }}')" title="ดูเหตุผล">
                         <i data-lucide="eye" style="width: 12px; height: 12px;"></i> ดูเหตุผล
                       </button>
@@ -418,6 +437,7 @@
                         </button>
                       </div>
                     {% else %}
+                      <!-- ✅ ซ่อนปุ่มเมื่อยังไม่มี Shortage -->
                       <span class="text-muted small">-</span>
                     {% endif %}
                   </td>
@@ -596,8 +616,8 @@
             {% endif %}
           </div>
 
-          <!-- ปุ่มแยก Batch (เฉพาะ Parent Batch และมี Shortage) -->
-          {% if not batch.parent_batch_id %}
+          <!-- ✅ NEW: ปุ่มแยก Batch (เฉพาะเมื่อมี Shortage + มีออเดอร์ที่หยิบครบ + ยังไม่ถึง R5) -->
+          {% if can_split %}
           <div class="text-center py-3">
             <h5 class="mb-3">
               <i data-lucide="split"></i>
@@ -614,7 +634,21 @@
             </button>
             <div class="mt-3 text-muted small">
               <i data-lucide="info"></i>
-              หากไม่มี Shortage ระบบจะแจ้งเตือนให้คุณทราบ
+              Batch นี้อยู่ที่ระดับ R{{ current_depth + 1 }}
+              {% if current_depth >= 4 %}
+              <span class="badge bg-danger ms-2">ถึงขอบเขต R5 แล้ว</span>
+              {% else %}
+              <span class="badge bg-success ms-2">สามารถแยกได้อีก {{ 5 - current_depth - 1 }} ระดับ</span>
+              {% endif %}
+            </div>
+          </div>
+          {% elif current_depth >= 5 %}
+          <!-- ถ้าถึง R5 แล้ว แสดงข้อความแจ้งเตือน -->
+          <div class="text-center py-3">
+            <div class="alert alert-danger">
+              <i data-lucide="alert-triangle"></i>
+              <strong>ไม่สามารถแยก Batch ได้</strong><br>
+              Batch นี้อยู่ที่ระดับ R5 แล้ว (ขีดจำกัดสูงสุด)
             </div>
           </div>
           {% endif %}

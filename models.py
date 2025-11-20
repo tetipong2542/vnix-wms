@@ -33,6 +33,60 @@ class Stock(db.Model):
         """Available stock = total - reserved"""
         return max(0, (self.qty or 0) - (self.reserved_qty or 0))
 
+
+class StockTransaction(db.Model):
+    """
+    Banking-style Transaction Log for Stock Movement
+    Option 2: Transaction-based Inventory Tracking
+
+    Every stock change is logged as a transaction with:
+    - Signed quantity (+10 receive, -2 reserve, +1 release)
+    - Balance snapshot after transaction
+    - Reason code for root cause analysis
+    - Reference to triggering event (batch, import, etc.)
+    """
+    __tablename__ = "stock_transactions"
+    id = db.Column(db.Integer, primary_key=True)
+
+    # Stock Info
+    sku = db.Column(db.String(64), nullable=False, index=True)
+
+    # Transaction Details
+    # transaction_type: 'RECEIVE', 'RESERVE', 'RELEASE', 'PICK', 'DAMAGE', 'ADJUST', 'RETURN'
+    transaction_type = db.Column(db.String(20), nullable=False, index=True)
+    quantity = db.Column(db.Integer, nullable=False)  # Signed: +10 (increase), -2 (decrease)
+    balance_after = db.Column(db.Integer, nullable=False)  # Snapshot of balance after this transaction
+
+    # Root Cause Analysis
+    # reason_code examples:
+    # - 'IMPORT': Stock received from supplier
+    # - 'BATCH_RESERVE': Reserved for batch creation
+    # - 'HANDOVER_RELEASE': Released after batch handover
+    # - 'FOUND_DAMAGED': Damaged goods found during picking
+    # - 'CANT_FIND': Item not found during picking (shrinkage)
+    # - 'MISPLACED': Item misplaced in warehouse
+    # - 'BARCODE_MISSING': Barcode label missing
+    # - 'CYCLE_COUNT_ADJUST': Adjustment from cycle count
+    reason_code = db.Column(db.String(50), index=True)
+
+    # Reference Link (Audit Trail)
+    # reference_type: 'import', 'batch', 'order_line', 'shortage', 'adjustment'
+    reference_type = db.Column(db.String(20), index=True)
+    reference_id = db.Column(db.String(128), index=True)  # batch_id, order_line_id, shortage_id, etc.
+
+    # Metadata
+    created_by = db.Column(db.String(64))  # username who triggered this transaction
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(TH_TZ), index=True)
+    notes = db.Column(db.Text)  # Additional context or details
+
+    # Composite indexes for common queries
+    __table_args__ = (
+        db.Index('idx_stock_tx_sku_created', 'sku', 'created_at'),
+        db.Index('idx_stock_tx_type_created', 'transaction_type', 'created_at'),
+        db.Index('idx_stock_tx_reference', 'reference_type', 'reference_id'),
+        db.Index('idx_stock_tx_reason', 'reason_code', 'created_at'),
+    )
+
 class Sales(db.Model):
     __tablename__ = "sales"
     id = db.Column(db.Integer, primary_key=True)
@@ -60,6 +114,10 @@ class OrderLine(db.Model):
     qty = db.Column(db.Integer, default=1)
     item_name = db.Column(db.String(512))
     order_time = db.Column(db.DateTime)  # tz-aware
+
+    # ✅ Phase 1: SLA Management
+    sla_date = db.Column(db.Date, index=True)  # วันที่ SLA (ส่งของให้ลูกค้า) - คำนวณจาก order_time + platform SLA days
+
     logistic_type = db.Column(db.String(255))
     carrier = db.Column(db.String(64))  # FR-02: SPX/Flash/LEX/J&T/etc
     imported_at = db.Column(db.DateTime, default=lambda: datetime.now(TH_TZ))
@@ -108,6 +166,9 @@ class Batch(db.Model):
     platform = db.Column(db.String(20), nullable=False, index=True)
     run_no = db.Column(db.Integer, nullable=False)  # 1, 2, 3...
     batch_date = db.Column(db.Date, nullable=False, index=True)
+
+    # ✅ Phase 1: SLA Management
+    sla_date = db.Column(db.Date, index=True)  # วันที่ SLA ของ Batch (ใช้ SLA เร็วที่สุดใน Batch นี้)
 
     # ✨ NEW: Parent-Child Batch System (Phase 3: Shortage Management)
     parent_batch_id = db.Column(db.String(64), db.ForeignKey("batches.batch_id"), nullable=True, index=True)
@@ -199,6 +260,7 @@ class ShortageQueue(db.Model):
     action_taken = db.Column(db.String(50))  # wait_stock, cancel, replace_sku, contact_customer, partial_ship
     replacement_sku = db.Column(db.String(64))  # SKU ที่แทน (ถ้ามี)
     resolution_notes = db.Column(db.Text)  # หมายเหตุการจัดการ
+    notes = db.Column(db.Text)  # ✅ หมายเหตุจาก Picker ตอน Mark Shortage
 
     # Timestamps
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(TH_TZ), index=True)

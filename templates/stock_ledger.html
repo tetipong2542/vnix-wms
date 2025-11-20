@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+  <!-- Header -->
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="mb-0 fw-bold" style="color: var(--gray-900);">
+      <i data-lucide="book-open"></i> Stock Ledger: {{ sku }}
+    </h2>
+    <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
+      <i data-lucide="arrow-left"></i> กลับ Dashboard
+    </a>
+  </div>
+
+  <!-- Stock Summary Card -->
+  <div class="row mb-4">
+    <div class="col-md-12">
+      <div class="card">
+        <div class="card-header bg-primary text-white">
+          <h5 class="mb-0"><i data-lucide="package"></i> สรุปสต็อก</h5>
+        </div>
+        <div class="card-body">
+          <div class="row">
+            <!-- Product Info -->
+            <div class="col-md-4">
+              <h6 class="text-muted">ข้อมูลสินค้า</h6>
+              <p class="mb-1"><strong>SKU:</strong> <code>{{ sku }}</code></p>
+              {% if product %}
+              <p class="mb-1"><strong>Brand:</strong> {{ product.brand or '-' }}</p>
+              <p class="mb-0"><strong>Model:</strong> {{ product.model or '-' }}</p>
+              {% endif %}
+            </div>
+
+            <!-- Current Stock -->
+            <div class="col-md-8">
+              <div class="row text-center">
+                <div class="col-md-3">
+                  <div class="card border-success">
+                    <div class="card-body p-3">
+                      <h3 class="text-success mb-0">{{ stock.qty }}</h3>
+                      <p class="text-muted small mb-0">Total Stock</p>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="card border-warning">
+                    <div class="card-body p-3">
+                      <h3 class="text-warning mb-0">{{ total_reserved }}</h3>
+                      <p class="text-muted small mb-0">Reserved</p>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="card border-primary">
+                    <div class="card-body p-3">
+                      <h3 class="text-primary mb-0">{{ total_available }}</h3>
+                      <p class="text-muted small mb-0">Available</p>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <div class="card border-info">
+                    <div class="card-body p-3">
+                      <h3 class="text-info mb-0">{{ active_batches|length }}</h3>
+                      <p class="text-muted small mb-0">Active Batches</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Transaction History (Banking-style) -->
+  <div class="card">
+    <div class="card-header bg-success text-white">
+      <h5 class="mb-0"><i data-lucide="list"></i> ประวัติการเคลื่อนไหว ({{ transactions|length }} รายการ)</h5>
+    </div>
+    <div class="card-body p-0">
+      {% if transactions %}
+      <div class="table-responsive">
+        <table class="table table-hover table-sm mb-0" id="transactionTable">
+          <thead class="table-dark">
+            <tr>
+              <th style="min-width: 150px;">Date/Time</th>
+              <th style="min-width: 100px;">Type</th>
+              <th class="text-center" style="min-width: 80px;">Qty</th>
+              <th class="text-center" style="min-width: 100px;">Balance After</th>
+              <th style="min-width: 150px;">Reason</th>
+              <th style="min-width: 150px;">Reference</th>
+              <th style="min-width: 100px;">Created By</th>
+              <th style="min-width: 200px;">Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for tx in transactions %}
+            <tr>
+              <!-- Date/Time -->
+              <td>
+                <span class="text-nowrap">{{ tx.created_at|thai_be }}</span>
+              </td>
+
+              <!-- Type -->
+              <td>
+                {% if tx.transaction_type == 'RECEIVE' %}
+                  <span class="badge bg-success">RECEIVE</span>
+                {% elif tx.transaction_type == 'RESERVE' %}
+                  <span class="badge bg-warning text-dark">RESERVE</span>
+                {% elif tx.transaction_type == 'RELEASE' %}
+                  <span class="badge bg-info">RELEASE</span>
+                {% elif tx.transaction_type == 'DAMAGE' %}
+                  <span class="badge bg-danger">DAMAGE</span>
+                {% elif tx.transaction_type == 'ADJUST' %}
+                  <span class="badge bg-secondary">ADJUST</span>
+                {% else %}
+                  <span class="badge bg-light text-dark">{{ tx.transaction_type }}</span>
+                {% endif %}
+              </td>
+
+              <!-- Quantity (with +/- sign) -->
+              <td class="text-center">
+                {% if tx.quantity > 0 %}
+                  <span class="text-success fw-bold">+{{ tx.quantity }}</span>
+                {% elif tx.quantity < 0 %}
+                  <span class="text-danger fw-bold">{{ tx.quantity }}</span>
+                {% else %}
+                  <span class="text-muted">0</span>
+                {% endif %}
+              </td>
+
+              <!-- Balance After -->
+              <td class="text-center">
+                <strong>{{ tx.balance_after }}</strong>
+              </td>
+
+              <!-- Reason Code -->
+              <td>
+                {% if tx.reason_code == 'IMPORT' %}
+                  <span class="badge bg-primary">IMPORT</span>
+                {% elif tx.reason_code == 'BATCH_RESERVE' %}
+                  <span class="badge bg-warning text-dark">BATCH_RESERVE</span>
+                {% elif tx.reason_code == 'HANDOVER_RELEASE' %}
+                  <span class="badge bg-info">HANDOVER_RELEASE</span>
+                {% elif tx.reason_code == 'FOUND_DAMAGED' %}
+                  <span class="badge bg-danger">FOUND_DAMAGED</span>
+                {% elif tx.reason_code == 'CANT_FIND' %}
+                  <span class="badge bg-danger">CANT_FIND</span>
+                {% elif tx.reason_code == 'MISPLACED' %}
+                  <span class="badge bg-warning">MISPLACED</span>
+                {% else %}
+                  <span class="badge bg-secondary">{{ tx.reason_code or '-' }}</span>
+                {% endif %}
+              </td>
+
+              <!-- Reference Link -->
+              <td>
+                {% if tx.reference_type == 'batch' and tx.reference_id %}
+                  <a href="{{ url_for('batch_detail', batch_id=tx.reference_id) }}" class="text-primary">
+                    <i data-lucide="external-link" style="width: 14px; height: 14px;"></i>
+                    {{ tx.reference_id }}
+                  </a>
+                {% elif tx.reference_id %}
+                  <small class="text-muted">{{ tx.reference_type }}: {{ tx.reference_id }}</small>
+                {% else %}
+                  <span class="text-muted">-</span>
+                {% endif %}
+              </td>
+
+              <!-- Created By -->
+              <td>
+                <small>{{ tx.created_by or 'system' }}</small>
+              </td>
+
+              <!-- Notes -->
+              <td>
+                <small class="text-muted">{{ tx.notes or '-' }}</small>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="alert alert-info m-3">
+        ยังไม่มีประวัติการเคลื่อนไหวสำหรับ SKU นี้
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+$(document).ready(function() {
+  // Initialize DataTable for transaction history
+  $('#transactionTable').DataTable({
+    order: [[0, 'desc']], // เรียงตามวันที่ล่าสุด
+    pageLength: 50,
+    autoWidth: false,
+    language: {
+      url: '//cdn.datatables.net/plug-ins/1.13.8/i18n/th.json'
+    }
+  });
+});
+</script>
+
+<style>
+/* Make table columns auto-size to fit content */
+#transactionTable td, #transactionTable th {
+  white-space: nowrap;
+}
+</style>
+{% endblock %}
