@@ -29,6 +29,61 @@ from allocation import compute_allocation
 APP_NAME = os.environ.get("APP_NAME", "VNIX Order Management")
 
 
+def get_google_credentials():
+    """
+    โหลด Google Service Account Credentials จาก Environment Variables หรือไฟล์
+
+    สำหรับ Production (Railway):
+    - ตั้งค่า Environment Variables ใน Railway Dashboard
+    - ใช้ GOOGLE_CREDENTIALS_JSON (JSON string ทั้งหมด) หรือ
+    - ใช้ตัวแปรแยก: GOOGLE_PROJECT_ID, GOOGLE_PRIVATE_KEY, GOOGLE_CLIENT_EMAIL, ฯลฯ
+
+    สำหรับ Local Development:
+    - วางไฟล์ credentials.json ในโฟลเดอร์โปรเจกต์
+    """
+    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+
+    # ลองอ่านจาก Environment Variable (JSON string ทั้งก้อน)
+    google_creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
+    if google_creds_json:
+        try:
+            creds_dict = json.loads(google_creds_json)
+            return ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"GOOGLE_CREDENTIALS_JSON ไม่ถูกต้อง: {e}")
+
+    # ลองสร้างจาก Environment Variables แยก
+    if os.environ.get('GOOGLE_PRIVATE_KEY'):
+        creds_dict = {
+            "type": "service_account",
+            "project_id": os.environ.get('GOOGLE_PROJECT_ID'),
+            "private_key_id": os.environ.get('GOOGLE_PRIVATE_KEY_ID'),
+            "private_key": os.environ.get('GOOGLE_PRIVATE_KEY', '').replace('\\n', '\n'),
+            "client_email": os.environ.get('GOOGLE_CLIENT_EMAIL'),
+            "client_id": os.environ.get('GOOGLE_CLIENT_ID'),
+            "auth_uri": os.environ.get('GOOGLE_AUTH_URI', 'https://accounts.google.com/o/oauth2/auth'),
+            "token_uri": os.environ.get('GOOGLE_TOKEN_URI', 'https://oauth2.googleapis.com/token'),
+            "auth_provider_x509_cert_url": os.environ.get('GOOGLE_AUTH_PROVIDER_CERT_URL', 'https://www.googleapis.com/oauth2/v1/certs'),
+            "client_x509_cert_url": os.environ.get('GOOGLE_CLIENT_CERT_URL'),
+            "universe_domain": os.environ.get('GOOGLE_UNIVERSE_DOMAIN', 'googleapis.com')
+        }
+        return ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+
+    # ลองอ่านจากไฟล์ credentials.json (สำหรับ Local Development)
+    creds_path = os.path.join(os.path.dirname(__file__), 'credentials.json')
+    if os.path.exists(creds_path):
+        return ServiceAccountCredentials.from_json_keyfile_name(creds_path, scope)
+
+    # ไม่พบ credentials ทั้งหมด
+    raise RuntimeError(
+        "ไม่พบ Google Service Account Credentials\n\n"
+        "สำหรับ Production: ตั้งค่า Environment Variables ใน Railway:\n"
+        "- GOOGLE_CREDENTIALS_JSON (แนะนำ) หรือ\n"
+        "- GOOGLE_PRIVATE_KEY, GOOGLE_CLIENT_EMAIL, ฯลฯ\n\n"
+        "สำหรับ Local: วางไฟล์ credentials.json ในโฟลเดอร์โปรเจกต์"
+    )
+
+
 # -----------------------------
 # สร้างแอป + บูตระบบเบื้องต้น
 # -----------------------------
@@ -1962,13 +2017,7 @@ def create_app():
 
         try:
             # 1. เชื่อมต่อ Google API
-            scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-            creds_path = os.path.join(os.path.dirname(__file__), 'credentials.json')
-            
-            if not os.path.exists(creds_path):
-                raise RuntimeError("ไม่พบไฟล์ credentials.json (กรุณาสร้างและนำมาวางในโฟลเดอร์โปรเจกต์)")
-                
-            creds = ServiceAccountCredentials.from_json_keyfile_name(creds_path, scope)
+            creds = get_google_credentials()
             client = gspread.authorize(creds)
 
             # 2. เปิด Google Sheet
@@ -2378,13 +2427,7 @@ def create_app():
                     return redirect(url_for("import_cancel_view"))
                     
                 # Connect Google Sheet
-                scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-                creds_path = os.path.join(os.path.dirname(__file__), 'credentials.json')
-                if not os.path.exists(creds_path):
-                    flash("ไม่พบไฟล์ credentials.json สำหรับเชื่อมต่อ Google Sheet", "danger")
-                    return redirect(url_for("import_cancel_view"))
-                    
-                creds = ServiceAccountCredentials.from_json_keyfile_name(creds_path, scope)
+                creds = get_google_credentials()
                 client = gspread.authorize(creds)
                 sh = client.open_by_url(url)
                 source_name = f"GSheet: {sh.title}"
@@ -2844,13 +2887,7 @@ def create_app():
                         flash("กรุณาระบุ Google Sheet URL", "danger")
                         return redirect(url_for("import_products_view"))
 
-                    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-                    creds_path = os.path.join(os.path.dirname(__file__), 'credentials.json')
-                    if not os.path.exists(creds_path):
-                        flash("ไม่พบไฟล์ credentials.json", "danger")
-                        return redirect(url_for("import_products_view"))
-
-                    creds = ServiceAccountCredentials.from_json_keyfile_name(creds_path, scope)
+                    creds = get_google_credentials()
                     client = gspread.authorize(creds)
 
                     try:
@@ -2947,15 +2984,8 @@ def create_app():
                         flash("กรุณาระบุ Google Sheet URL", "danger")
                         return redirect(url_for("import_stock_view"))
                     
-                    # 1. เชื่อมต่อ Google API (ใช้ Credential เดิมที่มี)
-                    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-                    creds_path = os.path.join(os.path.dirname(__file__), 'credentials.json')
-                    
-                    if not os.path.exists(creds_path):
-                        flash("ไม่พบไฟล์ credentials.json", "danger")
-                        return redirect(url_for("import_stock_view"))
-                        
-                    creds = ServiceAccountCredentials.from_json_keyfile_name(creds_path, scope)
+                    # 1. เชื่อมต่อ Google API
+                    creds = get_google_credentials()
                     client = gspread.authorize(creds)
                     
                     # 2. เปิด Sheet และ Tab
@@ -3057,13 +3087,7 @@ def create_app():
                         flash("กรุณาระบุ URL", "danger")
                         return redirect(url_for("import_sales_view"))
                     
-                    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-                    creds_path = os.path.join(os.path.dirname(__file__), 'credentials.json')
-                    if not os.path.exists(creds_path):
-                        flash("ไม่พบไฟล์ credentials.json", "danger")
-                        return redirect(url_for("import_sales_view"))
-                        
-                    creds = ServiceAccountCredentials.from_json_keyfile_name(creds_path, scope)
+                    creds = get_google_credentials()
                     client = gspread.authorize(creds)
                     
                     try:
