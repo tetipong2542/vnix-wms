@@ -60,6 +60,12 @@ def compute_allocation(session, filters:dict):
         # --- ตรวจสอบเงื่อนไขการแสดงผล (Filter) ใน Python ---
         show_this_row = True
         
+        # [แก้ไข] เตรียมตัวแปรเวลา Order ให้มี Timezone (ถ้ายังไม่มี) เพื่อให้เทียบกับ Filter ได้
+        current_order_time = ol.order_time
+        if current_order_time and current_order_time.tzinfo is None:
+            # ถ้าเวลาจาก DB ไม่มีโซน ให้ใส่โซนไทยเข้าไป (TH_TZ)
+            current_order_time = current_order_time.replace(tzinfo=TH_TZ)
+        
         # ถ้าไม่ใช่โหมดดูงานค้าง/ทั้งหมด (คือมีการระบุวันที่) ให้เช็ควันที่
         if not (filters.get("active_only") or filters.get("all_time")):
             # กรอง Import Date
@@ -68,9 +74,9 @@ def compute_allocation(session, filters:dict):
             # รองรับ key เก่า
             if filters.get("import_date") and ol.import_date != filters["import_date"]: show_this_row = False
             
-            # กรอง Order Date
-            if filters.get("date_from") and (not ol.order_time or ol.order_time < filters["date_from"]): show_this_row = False
-            if filters.get("date_to") and (not ol.order_time or ol.order_time >= filters["date_to"]): show_this_row = False
+            # [แก้ไข] กรอง Order Date (ใช้ current_order_time ที่แก้ Timezone แล้ว)
+            if filters.get("date_from") and (not current_order_time or current_order_time < filters["date_from"]): show_this_row = False
+            if filters.get("date_to") and (not current_order_time or current_order_time >= filters["date_to"]): show_this_row = False
 
         # --- กรองวันที่กดรับ (Accepted Date) แบบ Timezone-Safe ---
         if filters.get("accepted_from") or filters.get("accepted_to"):
