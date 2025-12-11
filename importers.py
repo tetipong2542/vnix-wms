@@ -15,8 +15,8 @@ COMMON_ORDER_ID   = ["orderNumber","Order Number","order_id","Order ID","order_s
 COMMON_SKU        = ["sellerSku","Seller SKU","SKU","Sku","Item SKU","SKU Reference No.","รหัสสินค้า"]
 COMMON_ITEM_NAME  = ["itemName","Item Name","Product Name","ชื่อสินค้า","ชื่อรุ่น","title","name"]
 COMMON_QTY        = ["quantity","Quantity","Qty","จำนวน","จำนวนที่สั่ง","Purchased Qty","Order Item Qty"]
-COMMON_ORDER_TIME = ["createdAt","create_time","created_time","Order Time","OrderDate","Order Date","วันที่สั่งซื้อ","Paid Time","paid_time","Created Time","createTime","Created Time"]
-COMMON_LOGISTICS  = ["logistic_type","Logistics Service","Shipping Provider","ประเภทขนส่ง","Shipment Method","Delivery Type"]
+COMMON_ORDER_TIME = ["order_time","createdAt","create_time","created_time","Order Time","OrderDate","Order Date","วันที่สั่งซื้อ","Paid Time","paid_time","Created Time","createTime","Created Time"]
+COMMON_LOGISTICS  = ["logistics_service","logistic_type","Logistics Service","Shipping Provider","ประเภทขนส่ง","Shipment Method","Delivery Type"]
 
 # เพิ่มคีย์หัวคอลัมน์สำหรับ "ชื่อร้าน"
 COMMON_SHOP = ["ชื่อร้าน","Shop","Shop Name","Store","Store Name","ร้าน","ร้านค้า"]
