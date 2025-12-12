@@ -16,6 +16,7 @@ from flask import (
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import func, text
 from sqlalchemy.sql import bindparam
+from dotenv import load_dotenv
 
 from utils import (
     now_thai, to_thai_be, to_be_date_str, TH_TZ, current_be_year,
@@ -25,6 +26,8 @@ from models import db, Shop, Product, Stock, Sales, OrderLine, User
 from importers import import_products, import_stock, import_sales, import_orders
 from allocation import compute_allocation
 
+# โหลด environment variables จากไฟล์ .env (สำหรับ Local Development)
+load_dotenv()
 
 APP_NAME = os.environ.get("APP_NAME", "VNIX Order Management")
 
@@ -1488,7 +1491,8 @@ def create_app():
         # ใช้ Set เพื่อให้เลข Order ไม่ซ้ำกัน
         kpi_orders_problem = set()
         for r in scope_rows:
-            if not r.get("packed") and not r.get("is_cancelled"):
+            # [แก้ไข] เพิ่มเงื่อนไข: ต้องยังไม่จ่ายงาน (is_issued) ด้วย ถึงจะนับเข้ากอง 3
+            if not r.get("packed") and not r.get("is_cancelled") and not r.get("is_issued"):
                 status_alloc = (r.get("allocation_status") or "").strip().upper()
                 if status_alloc in ("SHORTAGE", "NOT_ENOUGH"):
                     oid = (r.get("order_id") or "").strip()
@@ -3957,7 +3961,8 @@ def create_app():
         
         kpi_orders_problem = set()
         for r in rows:
-            if not r.get("packed") and not r.get("is_cancelled"):
+            # [แก้ไข] เพิ่มเงื่อนไข: ต้องยังไม่จ่ายงาน (is_issued) ด้วย ถึงจะนับเข้ากอง 3
+            if not r.get("packed") and not r.get("is_cancelled") and not r.get("is_issued"):
                 status_alloc = (r.get("allocation_status") or "").strip().upper()
                 if status_alloc in ("SHORTAGE", "NOT_ENOUGH"):
                     oid = (r.get("order_id") or "").strip()
