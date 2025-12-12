@@ -614,14 +614,14 @@
       .then(data => {
         if (data.found) {
           const reportMap = {
-            'READY': 'Warehouse',
-            'LOW_STOCK': 'Low Stock',
-            'SHORTAGE': 'No Stock',
-            'NOT_ENOUGH': 'Not Enough',
-            'PACKED': 'Packed',
-            'CANCELLED': 'Cancelled',
-            'ISSUED': 'Issued',
-            'NOT_IN_SBS': 'Not in SBS'
+          'READY': 'กอง1_ใบงานคลัง',
+          'LOW_STOCK': 'กอง2_สินค้าน้อย',
+          'SHORTAGE': 'กอง3_ไม่มีสินค้า',
+          'NOT_ENOUGH': 'กอง3_สินค้าไม่พอส่ง',
+            'PACKED': 'แพ็คแล้ว',
+            'CANCELLED': 'ยกเลิก',
+            'ISSUED': 'จ่ายงานแล้ว',
+            'NOT_IN_SBS': 'ยังไม่นำเข้า SBS'
           };
 
           let statusList = data.statuses || [data.status];
