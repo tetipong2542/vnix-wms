@@ -574,7 +574,9 @@ def create_app():
                 status = (it.get("allocation_status") or "").upper()
                 accepted = bool(it.get("accepted", False))
                 packed = (status == "PACKED") or bool(it.get("packed", False))
-                if not (status == "READY_ACCEPT" and not accepted and not packed):
+                is_issued = bool(it.get("is_issued", False))  # [NEW] เช็ค Order จ่ายงานแล้ว
+                # [แก้ไข] ถ้าจ่ายงานแล้ว (is_issued) ถือว่าจบงาน ไม่ต้องนับเข้ากอง 1
+                if not (status == "READY_ACCEPT" and not accepted and not packed and not is_issued):
                     all_ready = False
                     break
             if all_ready:
@@ -599,7 +601,9 @@ def create_app():
                 status = (it.get("allocation_status") or "").upper()
                 accepted = bool(it.get("accepted", False))
                 packed = (status == "PACKED") or bool(it.get("packed", False))
-                if packed or accepted:
+                is_issued = bool(it.get("is_issued", False))  # [NEW] เช็ค Order จ่ายงานแล้ว
+                # [แก้ไข] ถ้าจ่ายงานแล้ว (is_issued) ถือว่าจบงาน ไม่ต้องนับเข้ากอง 2
+                if packed or accepted or is_issued:
                     all_sendable = False
                     break
                 if status not in ("READY_ACCEPT", "LOW_STOCK"):
@@ -1560,7 +1564,8 @@ def create_app():
             # Recalculate kpi_orders_problem for search
             kpi_orders_problem = set()
             for r in scope_rows:
-                if not r.get("packed") and not r.get("is_cancelled"):
+                # [แก้ไข] เพิ่มเงื่อนไข: ต้องยังไม่จ่ายงาน (is_issued) ถึงจะนับเป็นงานค้างกอง 3
+                if not r.get("packed") and not r.get("is_cancelled") and not r.get("is_issued"):
                     status_alloc = (r.get("allocation_status") or "").strip().upper()
                     if status_alloc in ("SHORTAGE", "NOT_ENOUGH"):
                         oid = (r.get("order_id") or "").strip()
