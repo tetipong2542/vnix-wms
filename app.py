@@ -2998,6 +2998,10 @@ def create_app():
     @login_required
     def system_status():
         """หน้าตรวจสอบสถานะระบบและการเชื่อมต่อ Database"""
+        import sys
+        import platform
+        import flask
+        import sqlalchemy
 
         # 1. Database Path Information
         volume_path = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
@@ -3008,15 +3012,20 @@ def create_app():
             db_location = "Local Filesystem (Development)"
             db_path_full = os.path.join(os.path.dirname(__file__), "data.db")
 
-        # 2. Database Size
+        # 2. Database Size and Modified Time
         db_size = "N/A"
         db_exists = False
+        db_modified = None
         try:
             if os.path.exists(db_path_full):
                 db_exists = True
                 size_bytes = os.path.getsize(db_path_full)
-                # Convert to MB
                 db_size = f"{size_bytes / (1024 * 1024):.2f} MB"
+
+                # Get last modified time
+                import time
+                mtime = os.path.getmtime(db_path_full)
+                db_modified = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(mtime))
         except:
             pass
 
@@ -3029,7 +3038,13 @@ def create_app():
         except:
             total_orders = total_products = total_shops = total_users = 0
 
-        # 4. Environment Variables
+        # 4. System Information
+        python_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+        flask_version = flask.__version__
+        sqlalchemy_version = sqlalchemy.__version__
+        os_info = f"{platform.system()} {platform.release()}"
+
+        # 5. Environment Variables
         env_vars = {
             "RAILWAY_VOLUME_MOUNT_PATH": os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "Not Set"),
             "SECRET_KEY": "***" if os.environ.get("SECRET_KEY") else "Default (vnix-secret)",
@@ -3041,11 +3056,16 @@ def create_app():
             "db_location": db_location,
             "db_size": db_size,
             "db_exists": db_exists,
+            "db_modified": db_modified,
             "volume_path": volume_path or "Not Configured",
             "total_orders": total_orders,
             "total_products": total_products,
             "total_shops": total_shops,
             "total_users": total_users,
+            "python_version": python_version,
+            "flask_version": flask_version,
+            "sqlalchemy_version": sqlalchemy_version,
+            "os_info": os_info,
             "env_vars": env_vars,
         }
 

@@ -2,162 +2,283 @@
 {% block content %}
 
 <style>
+    /* Clean & Professional Minimalist Theme */
     :root {
-        --card-radius: 16px;
-        --shadow-sm: 0 2px 8px rgba(0,0,0,0.04);
-        --shadow-md: 0 5px 15px rgba(0,0,0,0.08);
+        --bg-primary: #FFFFFF;
+        --bg-secondary: #F8F9FA;
+        --text-primary: #1A1A1A;
+        --text-secondary: #6C757D;
+        --border-color: #E5E5E5;
+        --accent-color: #4A4A4A;
+        --success-color: #2D3748;
+        --warning-color: #718096;
+        --danger-color: #A0AEC0;
+    }
+
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
     }
 
     .status-container {
-        max-width: 1200px;
+        max-width: 1400px;
         margin: 0 auto;
-        padding: 20px;
+        padding: 40px 20px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        background: var(--bg-secondary);
+        min-height: 100vh;
     }
 
+    /* Header */
     .status-header {
-        text-align: center;
         margin-bottom: 40px;
+        padding-bottom: 20px;
+        border-bottom: 1px solid var(--border-color);
     }
 
     .status-header h1 {
-        font-size: 2.5rem;
-        font-weight: 800;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        margin-bottom: 10px;
+        font-size: 2rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 8px;
+        letter-spacing: -0.5px;
     }
 
     .status-header p {
-        color: #6c757d;
-        font-size: 1.1rem;
+        color: var(--text-secondary);
+        font-size: 0.95rem;
+        font-weight: 400;
     }
 
-    .status-card {
-        background: white;
-        border-radius: var(--card-radius);
-        box-shadow: var(--shadow-md);
-        padding: 30px;
-        margin-bottom: 25px;
-        border-left: 5px solid;
-    }
-
-    .status-card.database { border-left-color: #10ac84; }
-    .status-card.environment { border-left-color: #48dbfb; }
-    .status-card.records { border-left-color: #feca57; }
-
-    .status-card h3 {
-        font-size: 1.5rem;
-        font-weight: 700;
-        margin-bottom: 20px;
-        color: #2d3436;
-    }
-
-    .info-row {
+    /* Alert Box */
+    .alert-box {
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 20px 24px;
+        margin-bottom: 32px;
         display: flex;
-        justify-content: space-between;
-        padding: 12px 0;
-        border-bottom: 1px solid #f0f0f0;
+        align-items: flex-start;
+        gap: 16px;
     }
 
-    .info-row:last-child {
+    .alert-box.success {
+        border-left: 4px solid var(--success-color);
+    }
+
+    .alert-box.warning {
+        border-left: 4px solid var(--warning-color);
+    }
+
+    .alert-icon {
+        font-size: 1.25rem;
+        color: var(--text-primary);
+        font-weight: 600;
+        min-width: 24px;
+    }
+
+    .alert-content strong {
+        display: block;
+        color: var(--text-primary);
+        font-weight: 600;
+        margin-bottom: 4px;
+    }
+
+    .alert-content p {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        line-height: 1.5;
+    }
+
+    /* Card Sections */
+    .status-section {
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 28px;
+        margin-bottom: 24px;
+    }
+
+    .section-title {
+        font-size: 1.125rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 24px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--border-color);
+        letter-spacing: -0.3px;
+    }
+
+    /* Info Grid */
+    .info-grid {
+        display: grid;
+        gap: 16px;
+    }
+
+    .info-item {
+        display: grid;
+        grid-template-columns: 200px 1fr;
+        gap: 20px;
+        padding: 12px 0;
+        border-bottom: 1px solid #F1F3F5;
+    }
+
+    .info-item:last-child {
         border-bottom: none;
     }
 
     .info-label {
-        font-weight: 600;
-        color: #636e72;
-        flex: 0 0 250px;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
     }
 
     .info-value {
-        color: #2d3436;
-        font-family: 'Courier New', monospace;
-        flex: 1;
-        text-align: right;
+        color: var(--text-primary);
+        font-size: 0.9rem;
+        font-family: 'SF Mono', 'Monaco', 'Courier New', monospace;
         word-break: break-all;
+        display: flex;
+        align-items: center;
     }
 
-    .badge-status {
+    /* Status Badge */
+    .status-badge {
         display: inline-block;
-        padding: 6px 16px;
-        border-radius: 20px;
-        font-weight: 600;
-        font-size: 0.9rem;
+        padding: 4px 12px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
 
     .badge-success {
-        background: linear-gradient(135deg, #1dd1a1 0%, #10ac84 100%);
-        color: white;
+        background: #F0F4F8;
+        color: var(--success-color);
+        border: 1px solid #CBD5E0;
     }
 
     .badge-warning {
-        background: linear-gradient(135deg, #feca57 0%, #ff9f43 100%);
-        color: white;
+        background: #FFF9F5;
+        color: var(--warning-color);
+        border: 1px solid #FED7AA;
     }
 
     .badge-danger {
-        background: linear-gradient(135deg, #ff6b6b 0%, #ee5253 100%);
-        color: white;
+        background: #FEF2F2;
+        color: #DC2626;
+        border: 1px solid #FECACA;
     }
 
-    .badge-info {
-        background: linear-gradient(135deg, #48dbfb 0%, #0abde3 100%);
-        color: white;
-    }
-
-    .alert-box {
-        padding: 20px;
-        border-radius: 12px;
-        margin-bottom: 25px;
-        display: flex;
-        align-items: center;
-        gap: 15px;
-    }
-
-    .alert-box.success {
-        background: #d4edda;
-        border: 1px solid #c3e6cb;
-        color: #155724;
-    }
-
-    .alert-box.warning {
-        background: #fff3cd;
-        border: 1px solid #ffeaa7;
-        color: #856404;
-    }
-
-    .alert-icon {
-        font-size: 2rem;
-    }
-
+    /* Stats Grid */
     .stats-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 15px;
-        margin-top: 15px;
+        gap: 20px;
+        margin-top: 8px;
     }
 
-    .stat-box {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
+    .stat-card {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
         padding: 20px;
-        border-radius: 12px;
         text-align: center;
     }
 
-    .stat-box h4 {
-        font-size: 0.9rem;
-        opacity: 0.9;
-        margin-bottom: 8px;
+    .stat-label {
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+        font-weight: 500;
         text-transform: uppercase;
         letter-spacing: 0.5px;
+        margin-bottom: 8px;
     }
 
-    .stat-box .number {
+    .stat-value {
+        color: var(--text-primary);
         font-size: 2rem;
-        font-weight: 800;
+        font-weight: 600;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    /* Table Style */
+    .info-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+    }
+
+    .info-table th {
+        text-align: left;
+        padding: 10px 12px;
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .info-table td {
+        padding: 12px;
+        border-bottom: 1px solid #F1F3F5;
+        color: var(--text-primary);
+        font-size: 0.9rem;
+    }
+
+    .info-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .info-table td:first-child {
+        color: var(--text-secondary);
+        font-weight: 500;
+        width: 200px;
+    }
+
+    .info-table td:last-child {
+        font-family: 'SF Mono', 'Monaco', 'Courier New', monospace;
+    }
+
+    /* Back Button */
+    .back-button {
+        display: inline-block;
+        margin-top: 32px;
+        padding: 12px 32px;
+        background: var(--text-primary);
+        color: white;
+        text-decoration: none;
+        border-radius: 6px;
+        font-weight: 500;
+        font-size: 0.9rem;
+        transition: background 0.2s ease;
+    }
+
+    .back-button:hover {
+        background: var(--accent-color);
+        color: white;
+        text-decoration: none;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+        .info-item {
+            grid-template-columns: 1fr;
+            gap: 8px;
+        }
+
+        .stats-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        .info-table td:first-child {
+            width: auto;
+        }
     }
 </style>
 
@@ -165,123 +286,170 @@
     <!-- Header -->
     <div class="status-header">
         <h1>System Status</h1>
-        <p>ตรวจสอบสถานะระบบและการเชื่อมต่อฐานข้อมูล</p>
+        <p>Database connection and system information overview</p>
     </div>
 
-    <!-- Alert Box -->
+    <!-- Connection Status Alert -->
     {% if status.db_exists and status.volume_path != "Not Configured" %}
     <div class="alert-box success">
-        <div class="alert-icon">✅</div>
-        <div>
-            <strong>ระบบทำงานปกติ!</strong><br>
-            เชื่อมต่อกับ Railway Volume สำเร็จ ข้อมูลจะไม่หายหลัง deploy
+        <div class="alert-icon">✓</div>
+        <div class="alert-content">
+            <strong>System Operational</strong>
+            <p>Railway Volume is connected. Database is persistent and will not be lost after deployment.</p>
         </div>
     </div>
     {% elif status.volume_path == "Not Configured" %}
     <div class="alert-box warning">
-        <div class="alert-icon">⚠️</div>
-        <div>
-            <strong>ยังไม่ได้ตั้งค่า Railway Volume!</strong><br>
-            ข้อมูลอาจหายหลัง deploy กรุณาตั้งค่า Volume ตามคู่มือ RAILWAY_VOLUME_SETUP.md
+        <div class="alert-icon">!</div>
+        <div class="alert-content">
+            <strong>Volume Not Configured</strong>
+            <p>Railway Volume is not set up. Data may be lost after redeployment. See RAILWAY_VOLUME_SETUP.md for instructions.</p>
         </div>
     </div>
     {% endif %}
 
     <!-- Database Information -->
-    <div class="status-card database">
-        <h3>📁 Database Information</h3>
+    <div class="status-section">
+        <h2 class="section-title">Database Information</h2>
 
-        <div class="info-row">
-            <div class="info-label">Database Location:</div>
-            <div class="info-value">
-                {% if status.volume_path != "Not Configured" %}
-                    <span class="badge-status badge-success">{{ status.db_location }}</span>
-                {% else %}
-                    <span class="badge-status badge-warning">{{ status.db_location }}</span>
-                {% endif %}
+        <div class="info-grid">
+            <div class="info-item">
+                <div class="info-label">Location</div>
+                <div class="info-value">
+                    {% if status.volume_path != "Not Configured" %}
+                        <span class="status-badge badge-success">{{ status.db_location }}</span>
+                    {% else %}
+                        <span class="status-badge badge-warning">{{ status.db_location }}</span>
+                    {% endif %}
+                </div>
             </div>
-        </div>
 
-        <div class="info-row">
-            <div class="info-label">Database Path:</div>
-            <div class="info-value">{{ status.db_path }}</div>
-        </div>
-
-        <div class="info-row">
-            <div class="info-label">Volume Mount Path:</div>
-            <div class="info-value">
-                {% if status.volume_path != "Not Configured" %}
-                    <span class="badge-status badge-success">{{ status.volume_path }}</span>
-                {% else %}
-                    <span class="badge-status badge-danger">{{ status.volume_path }}</span>
-                {% endif %}
+            <div class="info-item">
+                <div class="info-label">Database Path</div>
+                <div class="info-value">{{ status.db_path }}</div>
             </div>
-        </div>
 
-        <div class="info-row">
-            <div class="info-label">Database File:</div>
-            <div class="info-value">
-                {% if status.db_exists %}
-                    <span class="badge-status badge-success">Exists</span>
-                {% else %}
-                    <span class="badge-status badge-danger">Not Found</span>
-                {% endif %}
+            <div class="info-item">
+                <div class="info-label">Volume Mount Path</div>
+                <div class="info-value">
+                    {% if status.volume_path != "Not Configured" %}
+                        <span class="status-badge badge-success">{{ status.volume_path }}</span>
+                    {% else %}
+                        <span class="status-badge badge-danger">{{ status.volume_path }}</span>
+                    {% endif %}
+                </div>
             </div>
-        </div>
 
-        <div class="info-row">
-            <div class="info-label">Database Size:</div>
-            <div class="info-value"><strong>{{ status.db_size }}</strong></div>
+            <div class="info-item">
+                <div class="info-label">File Status</div>
+                <div class="info-value">
+                    {% if status.db_exists %}
+                        <span class="status-badge badge-success">Exists</span>
+                    {% else %}
+                        <span class="status-badge badge-danger">Not Found</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="info-item">
+                <div class="info-label">Database Size</div>
+                <div class="info-value">{{ status.db_size }}</div>
+            </div>
+
+            {% if status.db_modified %}
+            <div class="info-item">
+                <div class="info-label">Last Modified</div>
+                <div class="info-value">{{ status.db_modified }}</div>
+            </div>
+            {% endif %}
         </div>
     </div>
 
-    <!-- Records Statistics -->
-    <div class="status-card records">
-        <h3>📊 Database Records</h3>
+    <!-- Database Records -->
+    <div class="status-section">
+        <h2 class="section-title">Database Records</h2>
 
         <div class="stats-grid">
-            <div class="stat-box">
-                <h4>Orders</h4>
-                <div class="number">{{ "{:,}".format(status.total_orders) }}</div>
+            <div class="stat-card">
+                <div class="stat-label">Orders</div>
+                <div class="stat-value">{{ "{:,}".format(status.total_orders) }}</div>
             </div>
-            <div class="stat-box">
-                <h4>Products</h4>
-                <div class="number">{{ "{:,}".format(status.total_products) }}</div>
+            <div class="stat-card">
+                <div class="stat-label">Products</div>
+                <div class="stat-value">{{ "{:,}".format(status.total_products) }}</div>
             </div>
-            <div class="stat-box">
-                <h4>Shops</h4>
-                <div class="number">{{ "{:,}".format(status.total_shops) }}</div>
+            <div class="stat-card">
+                <div class="stat-label">Shops</div>
+                <div class="stat-value">{{ "{:,}".format(status.total_shops) }}</div>
             </div>
-            <div class="stat-box">
-                <h4>Users</h4>
-                <div class="number">{{ "{:,}".format(status.total_users) }}</div>
+            <div class="stat-card">
+                <div class="stat-label">Users</div>
+                <div class="stat-value">{{ "{:,}".format(status.total_users) }}</div>
             </div>
         </div>
+    </div>
+
+    <!-- System Information -->
+    <div class="status-section">
+        <h2 class="section-title">System Information</h2>
+
+        <table class="info-table">
+            <tbody>
+                <tr>
+                    <td>Python Version</td>
+                    <td>{{ status.python_version }}</td>
+                </tr>
+                <tr>
+                    <td>Flask Version</td>
+                    <td>{{ status.flask_version }}</td>
+                </tr>
+                <tr>
+                    <td>SQLAlchemy Version</td>
+                    <td>{{ status.sqlalchemy_version }}</td>
+                </tr>
+                <tr>
+                    <td>Operating System</td>
+                    <td>{{ status.os_info }}</td>
+                </tr>
+                <tr>
+                    <td>Environment</td>
+                    <td>
+                        {% if status.volume_path != "Not Configured" %}
+                            <span class="status-badge badge-success">Production</span>
+                        {% else %}
+                            <span class="status-badge badge-warning">Development</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            </tbody>
+        </table>
     </div>
 
     <!-- Environment Variables -->
-    <div class="status-card environment">
-        <h3>🔧 Environment Variables</h3>
+    <div class="status-section">
+        <h2 class="section-title">Environment Variables</h2>
 
-        {% for key, value in status.env_vars.items() %}
-        <div class="info-row">
-            <div class="info-label">{{ key }}:</div>
-            <div class="info-value">
-                {% if value == "Not Set" %}
-                    <span class="badge-status badge-danger">{{ value }}</span>
-                {% else %}
-                    {{ value }}
-                {% endif %}
-            </div>
-        </div>
-        {% endfor %}
+        <table class="info-table">
+            <tbody>
+                {% for key, value in status.env_vars.items() %}
+                <tr>
+                    <td>{{ key }}</td>
+                    <td>
+                        {% if value == "Not Set" %}
+                            <span class="status-badge badge-danger">{{ value }}</span>
+                        {% else %}
+                            {{ value }}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
 
     <!-- Back Button -->
-    <div style="text-align: center; margin-top: 30px;">
-        <a href="{{ url_for('dashboard') }}" class="btn btn-primary btn-lg" style="border-radius: 10px; padding: 12px 40px;">
-            ← กลับไปหน้าหลัก
-        </a>
+    <div style="text-align: center;">
+        <a href="{{ url_for('dashboard') }}" class="back-button">Back to Dashboard</a>
     </div>
 </div>
 
