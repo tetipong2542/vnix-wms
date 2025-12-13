@@ -92,15 +92,15 @@ def import_products(df: pd.DataFrame) -> int:
     db.session.commit()
     return cnt
 
-# >>> ฟังก์ชันนี้ถูกแพตช์ใหม่ให้ทน NaN/หัวคอลัมน์หลายแบบ
-def import_stock(df: pd.DataFrame) -> int:
+# >>> ฟังก์ชันนี้ถูกแพตช์ใหม่ให้ทน NaN/หัวคอลัมน์หลายแบบ + Full Sync Mode
+def import_stock(df: pd.DataFrame, full_replace: bool = True) -> int:
     """
     นำเข้าสต็อกจาก DataFrame:
     - รองรับหัวคอลัมน์หลายแบบ (ไทย/อังกฤษ)
-    - Qty ว่าง/NaN จะถูกมองเป็น 0 (กัน error: cannot convert float NaN to integer)
+    - Qty ว่าง/NaN จะถูกมองเป็น 0
     - รวมยอดเมื่อไฟล์มี SKU ซ้ำหลายบรรทัด
-    - อัปเดตทั้งตาราง Stock และ (ถ้ามีคอลัมน์) Product.stock_qty
-    คืนค่าจำนวนแถวที่บันทึก (insert/update)
+    - โหมด full_replace=True: SKU ที่ไม่อยู่ในไฟล์/ชีต ให้ถือว่าเป็น 0 (SabuySoft)
+    คืนค่าจำนวน SKU ที่บันทึก (insert/update)
     """
     sku_col = first_existing(df, COMMON_STOCK_SKU)
     qty_col = first_existing(df, COMMON_STOCK_QTY)
@@ -109,22 +109,32 @@ def import_stock(df: pd.DataFrame) -> int:
     if not qty_col:
         raise ValueError("ไม่พบคอลัมน์ คงเหลือ/Qty/Stock ในไฟล์สต็อก")
 
-    # ตั้งชื่อมาตรฐาน
-    df = df.rename(columns={sku_col: "sku", qty_col: "qty"})
+    df = df.copy()
+    df.rename(columns={sku_col: "sku", qty_col: "qty"}, inplace=True)
 
-    # ทำความสะอาด
-    df["sku"] = df["sku"].astype(str).fillna("").map(lambda x: x.strip())
+    df["sku"] = df["sku"].astype(str).fillna("").str.strip()
     df["qty"] = pd.to_numeric(df["qty"], errors="coerce").fillna(0).astype(int)
 
     # คัดแถวที่ไม่มี SKU
     df = df[df["sku"] != ""]
-    if df.empty:
-        return 0
+
+    # ✅ SabuySoft rule: ถ้า SKU หายไป ต้องถือว่าเป็น 0
+    # ทำ full sync โดย reset ทั้งตารางเป็น 0 ก่อน แล้วค่อย update ตามไฟล์
+    if full_replace:
+        reset_data = {Stock.qty: 0, Stock.updated_at: datetime.now(TH_TZ)}
+        Stock.query.update(reset_data, synchronize_session=False)
+
+        # ถ้าไฟล์ว่างจริง ๆ = แปลว่าไม่มี SKU ไหนเหลือเลย → ทั้งหมดเป็น 0
+        if df.empty:
+            db.session.commit()
+            return 0
+    else:
+        if df.empty:
+            return 0
 
     # รวมยอดตาม SKU (กันไฟล์ซ้ำแถว)
     agg = df.groupby("sku", as_index=False)["qty"].sum()
 
-    # อัปเดตฐานข้อมูล
     saved = 0
     for _, row in agg.iterrows():
         sku = row["sku"]
@@ -136,6 +146,7 @@ def import_stock(df: pd.DataFrame) -> int:
             db.session.add(st)
         else:
             st.qty = qty
+            st.updated_at = datetime.now(TH_TZ)
 
         # ถ้ามีฟิลด์ product.stock_qty ให้ sync ด้วย
         prod = Product.query.filter_by(sku=sku).first()

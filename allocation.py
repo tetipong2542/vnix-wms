@@ -146,6 +146,7 @@ def compute_allocation(session, filters:dict):
             "qty": int(ol.qty or 0),
             "order_time": ol.order_time,
             "order_time_iso": (ol.order_time.astimezone(TH_TZ).isoformat() if ol.order_time else ""),
+            "import_date": ol.import_date,  # [เพิ่ม] เพื่อให้ Dashboard รู้ว่านำเข้าวันไหน
             "due_date": due,
             "sla": sla,
             "logistic": ol.logistic_type or "",

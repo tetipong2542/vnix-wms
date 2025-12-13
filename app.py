@@ -94,7 +94,15 @@ def create_app():
     app = Flask(__name__)
     app.secret_key = os.environ.get("SECRET_KEY", "vnix-secret")
 
-    db_path = os.path.join(os.path.dirname(__file__), "data.db")
+    # ตรวจสอบว่าอยู่ใน Railway และมี Volume หรือไม่
+    volume_path = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
+    if volume_path:
+        # Production (Railway with Volume) - ข้อมูลจะไม่หายหลัง deploy
+        db_path = os.path.join(volume_path, "data.db")
+    else:
+        # Local development
+        db_path = os.path.join(os.path.dirname(__file__), "data.db")
+
     app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}"
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
@@ -1477,6 +1485,11 @@ def create_app():
         
         # Helper lists for KPI counts from scope
         kpi_orders_ready = _orders_ready_set(scope_rows)
+        
+        # +++ [เพิ่ม] เก็บรายชื่อ Order ที่พร้อมจริงๆ (จากข้อมูลทั้งหมด) เอาไว้ใช้คุมปุ่มกดรับ
+        # เพราะเดี๋ยว kpi_orders_ready จะถูกเขียนทับถ้ามีการ Search
+        global_ready_oids = kpi_orders_ready.copy()
+        
         kpi_orders_low = _orders_lowstock_order_set(scope_rows)
         kpi_orders_nosales = _orders_no_sales_set(scope_rows)
         kpi_orders_not_in_sbs = _orders_not_in_sbs_set(scope_rows)
@@ -1608,7 +1621,106 @@ def create_app():
                 if not status:
                      rows = [r for r in rows if not r.get("packed") and not r.get("is_cancelled")]
 
+        # --- STEP 4.5: ใส่ "สถานะตามการ์ด (KPI Cards)" ลงในแต่ละแถว เพื่อให้คอลัมน์สถานะอ่านเข้าใจ ---
+        # หมายเหตุ: การ์ดด้านบนเป็นการจัดกลุ่ม "ระดับ Order" แต่ตารางแสดง "ระดับบรรทัดสินค้า (SKU)"
+        # ดังนั้นเราจะใส่ badge เพิ่มให้เห็นว่าบรรทัดนี้อยู่ในกลุ่มไหนของการ์ดบ้าง (เช่น กอง 1/2/3, ไม่มีใบขาย, ไม่เข้า SBS)
+        def _build_card_tags(oid: str) -> list:
+            tags = []
+            if not oid:
+                return tags
+
+            # กลุ่มงานค้าง (Pending Tasks)
+            if oid in kpi_orders_ready:
+                tags.append({"code": "ORDER_READY", "label": "กอง 1", "cls": "bg-success"})
+            if oid in kpi_orders_low:
+                tags.append({"code": "ORDER_LOW_STOCK", "label": "กอง 2", "cls": "bg-warning text-dark"})
+            if oid in kpi_orders_problem:
+                tags.append({"code": "ORDER_PROBLEM", "label": "กอง 3", "cls": "bg-danger"})
+            if oid in kpi_orders_nosales:
+                tags.append({"code": "ORDER_NO_SALES", "label": "ยังไม่แพ็ค", "cls": "bg-light text-dark border border-secondary"})
+            if oid in kpi_orders_not_in_sbs:
+                tags.append({"code": "ORDER_NOT_IN_SBS", "label": "ยังไม่นำเข้าSBS", "cls": "bg-light text-dark border border-secondary"})
+
+            # กลุ่มงานจบ (Completed Today) — เผื่อหน้า Total/ค้นหา ทำให้ Packed/Cancelled โผล่มาในตาราง
+            if oid in kpi_packed_oids:
+                tags.append({"code": "PACKED", "label": "แพ็คแล้ว", "cls": "bg-dark"})
+            if oid in kpi_cancel_nopack:
+                tags.append({"code": "ORDER_CANCELLED", "label": "ยกเลิก(ก่อนแพ็ค)", "cls": "bg-secondary"})
+            if oid in kpi_cancel_packed:
+                tags.append({"code": "ORDER_CANCELLED_PACKED", "label": "ยกเลิก(หลังแพ็ค)", "cls": "bg-secondary"})
+
+            return tags
+
+        for r in rows:
+            oid = (r.get("order_id") or "").strip()
+            r["card_tags"] = _build_card_tags(oid)
+
         # --- STEP 5: สร้าง Dict KPI ---
+        
+        # --- [NEW LOGIC] แยกนับยอด เก่า (Old) vs วันนี้ (Today) ---
+        today_date = now_thai().date()
+
+        def _count_split(oid_set, source_rows):
+            """ฟังก์ชันช่วยนับ: คืนค่า (total, old_count, today_count)"""
+            total = len(oid_set)
+            old_c = 0
+            today_c = 0
+            
+            # สร้าง Dict เพื่อ map order_id -> import_date จาก source_rows
+            oid_date_map = {}
+            for r in source_rows:
+                if r.get("order_id"):
+                    d = r.get("import_date")
+                    # Fallback: ถ้าไม่มี import_date ให้ใช้วันที่สั่ง
+                    if not d and r.get("order_time"):
+                        if isinstance(r["order_time"], datetime):
+                            d = r["order_time"].date()
+                    oid_date_map[r["order_id"]] = d
+            
+            for oid in oid_set:
+                d = oid_date_map.get(oid)
+                # ตรวจสอบว่าเป็นเก่าหรือใหม่
+                is_old = True
+                if d:
+                    # แปลงเป็น date object ถ้าจำเป็น
+                    if isinstance(d, datetime):
+                        d = d.date()
+                    elif isinstance(d, str):
+                        try:
+                            d = datetime.strptime(d, "%Y-%m-%d").date()
+                        except:
+                            d = today_date
+
+                    if d >= today_date:
+                        is_old = False
+                
+                if is_old:
+                    old_c += 1
+                else:
+                    today_c += 1
+                    
+            return total, old_c, today_c
+
+        # คำนวณยอดแยกของแต่ละกอง
+        c_ready, c_ready_old, c_ready_new = _count_split(kpi_orders_ready, scope_rows)
+        c_low, c_low_old, c_low_new = _count_split(kpi_orders_low, scope_rows)
+        c_prob, c_prob_old, c_prob_new = _count_split(kpi_orders_problem, scope_rows)
+        
+        # [NEW] แยกเก่า/ใหม่ ให้กับ "ไม่มีใบขาย" และ "ไม่เข้า SBS"
+        c_nosale, c_nosale_old, c_nosale_new = _count_split(kpi_orders_nosales, scope_rows)
+        c_nosbs, c_nosbs_old, c_nosbs_new = _count_split(kpi_orders_not_in_sbs, scope_rows)
+        
+        # รวม Order ค้างทั้งหมด (Unique) - กรองเฉพาะ active
+        active_oids_set = set(r.get("order_id") for r in scope_rows 
+                              if r.get("order_id") and not r.get("packed") and not r.get("is_cancelled"))
+        c_pending, c_pending_old, c_pending_new = _count_split(active_oids_set, scope_rows)
+        
+        # [NEW] นับถังขยะ (Deleted) เฉพาะของวันนี้ (ถ้าเป็น Default View)
+        # ใช้ func.date เพื่อเทียบแค่วันที่ (ตัดเวลาออก)
+        deleted_today_count = db.session.query(func.count(DeletedOrder.id)).filter(
+            func.date(DeletedOrder.deleted_at) == today_date
+        ).scalar() or 0
+
         kpis = {
             "total_items": len(scope_rows),
             "total_qty": sum(int(r.get("qty", 0) or 0) for r in scope_rows),
@@ -1621,12 +1733,32 @@ def create_app():
                 if r.get("order_id")
             )),
             
-            # Active (Pending)
-            "orders_unique": len(set(
-                r.get("order_id") for r in scope_rows 
-                if r.get("order_id") and not r.get("packed") and not r.get("is_cancelled")
-            )),
+            # --- กลุ่มงานค้าง (ใช้ยอดแยก เก่า/ใหม่) ---
+            "orders_unique": c_pending,
+            "orders_unique_old": c_pending_old,
+            "orders_unique_new": c_pending_new,
+
+            "orders_ready": c_ready,
+            "orders_ready_old": c_ready_old,
+            "orders_ready_new": c_ready_new,
+
+            "orders_low": c_low,
+            "orders_low_old": c_low_old,
+            "orders_low_new": c_low_new,
+
+            "orders_problem": c_prob,
+            "orders_problem_old": c_prob_old,
+            "orders_problem_new": c_prob_new,
+
+            "orders_nosales": c_nosale,
+            "orders_nosales_old": c_nosale_old,
+            "orders_nosales_new": c_nosale_new,
+
+            "orders_not_in_sbs": c_nosbs,
+            "orders_not_in_sbs_old": c_nosbs_old,
+            "orders_not_in_sbs_new": c_nosbs_new,
             
+            # --- กลุ่มงานจบ (ใช้ยอดเดิม) ---
             # นับจาก Scope (ไม่ว่าจะซ่อนในตารางหรือไม่ ก็จะโชว์ตัวเลข)
             "ready": sum(1 for r in scope_rows if r.get("allocation_status") == "READY_ACCEPT" and not r.get("packed") and not r.get("is_cancelled")),
             "accepted": sum(1 for r in scope_rows if r.get("allocation_status") == "ACCEPTED"),
@@ -1639,15 +1771,9 @@ def create_app():
             # [แก้ไข] แยกเป็น 2 ยอด: ยกเลิกก่อนแพ็ค / ยกเลิกหลังแพ็ค
             "orders_cancelled": len(kpi_cancel_nopack),
             "orders_cancelled_packed": len(kpi_cancel_packed),
-
-            "orders_ready": len(kpi_orders_ready),
-            "orders_low": len(kpi_orders_low),
-            "orders_nosales": len(kpi_orders_nosales),
-            "orders_not_in_sbs": len(kpi_orders_not_in_sbs),
-            "orders_problem": len(kpi_orders_problem),
             
-            # [NEW] จำนวน Order ที่ถูกลบ (Soft Delete)
-            "orders_deleted": len(deleted_oids),
+            # [NEW] จำนวน Order ที่ถูกลบ (Soft Delete) - เฉพาะวันนี้
+            "orders_deleted": deleted_today_count,
         }
 
         # Sort
@@ -1670,22 +1796,24 @@ def create_app():
         if q:
             iq = iq.filter(IssuedOrder.order_id.contains(q))
 
-        # 3. กรองวันที่
+        # 3. กรองวันที่สำหรับ "Order จ่ายแล้ว" (Issued Count)
         if is_all_time:
-            # All Time -> ไม่กรองวันที่
+            # All Time -> ไม่กรองวันที่ (นับสะสม)
             pass
         elif mode == 'today':
-            # [NEW] ถ้าโหมดวันนี้ -> กรองเฉพาะออเดอร์ที่นำเข้าวันนี้
+            # โหมด Today -> กรองเฉพาะออเดอร์ที่นำเข้าวันนี้
             iq = iq.filter(OrderLine.import_date == now_thai().date())
         elif has_date_filter:
+            # ถ้ามีการเลือกช่วงเวลา -> กรองตามวันที่นำเข้า
             if imp_from: iq = iq.filter(OrderLine.import_date >= imp_from)
             if imp_to:   iq = iq.filter(OrderLine.import_date <= imp_to)
             if d_from:   iq = iq.filter(OrderLine.order_time >= d_from)
             if d_to:     iq = iq.filter(OrderLine.order_time < d_to)
         else:
-            # [แก้ไข] Default View -> ไม่กรองวันที่ เพื่อให้นับยอดจ่ายแล้วทั้งหมด
-            # ให้ตรงกับความเข้าใจว่าเป็น Order ที่เคยค้าง (ตาม Scope ร้านค้า)
-            pass
+            # [แก้ไขสำคัญ] Default View (หน้าปกติ) 
+            # ให้กรอง "เวลาจ่ายงาน (Issued At)" เป็น "วันนี้" เท่านั้น 
+            # เพื่อให้ยอดรีเซ็ตเป็น 0 ทุกวัน
+            iq = iq.filter(func.date(IssuedOrder.issued_at) == now_thai().date())
 
         # ใช้ distinct เพราะ 1 Order มีหลาย Line
         issued_count = iq.distinct().count()
@@ -1708,7 +1836,7 @@ def create_app():
             use_default_view=use_default_view,
             q=q,
             mode=mode,  # [NEW] ส่งค่า mode ไปหน้าเว็บ
-            ready_oids=kpi_orders_ready,  # [NEW] ส่งรายชื่อ Order ที่พร้อม 100% ไปใช้หน้าเว็บ
+            ready_oids=global_ready_oids,  # [แก้ไข] เปลี่ยนจาก kpi_orders_ready เป็น global_ready_oids เพื่อให้ปุ่มกดรับอ้างอิงจากความพร้อมจริงๆ เท่านั้น (ไม่เพี้ยนตอน Search)
         )
 
     # =========[ NEW ]=========  กดรับ Order ในหน้า Dashboard
@@ -3042,11 +3170,11 @@ def create_app():
                         return redirect(url_for("import_stock_view"))
                     df = pd.read_excel(f)
 
-                # ==== ส่ง DataFrame ไปเข้าฟังก์ชัน import_stock เดิม ====
+                # ==== ส่ง DataFrame ไปเข้าฟังก์ชัน import_stock (Full Sync Mode) ====
                 if df is not None:
-                    cnt = import_stock(df)
+                    cnt = import_stock(df, full_replace=True)
                     source_text = "Google Sheet" if mode == "gsheet" else "ไฟล์"
-                    flash(f"✅ นำเข้าสต็อกสำเร็จ {cnt} รายการ (จาก {source_text})", "success")
+                    flash(f"✅ นำเข้าสต็อกสำเร็จ {cnt} SKU (Full Sync: SKU ที่ไม่อยู่ในไฟล์จะถูกตั้งเป็น 0) [จาก {source_text}]", "success")
                     return redirect(url_for("import_stock_view"))
 
             except Exception as e:
@@ -8523,11 +8651,17 @@ def create_app():
                         flash(f"เกิดข้อผิดพลาดในการลบ: {e}", "danger")
                 
             elif scope == "all":
+                # 1. ลบรายการสินค้า
                 deleted = OrderLine.query.delete()
-                # [เพิ่ม] ล้างถังขยะด้วยเลย
+                # 2. ลบถังขยะ
                 del_bin = db.session.query(DeletedOrder).delete()
+                # 3. [เพิ่ม] ลบประวัติการจ่ายงาน (Issued)
+                del_issued = db.session.query(IssuedOrder).delete()
+                # 4. [เพิ่ม] ลบประวัติการยกเลิก (Cancelled)
+                del_cancel = db.session.query(CancelledOrder).delete()
+                
                 db.session.commit()
-                flash(f"ลบข้อมูลออเดอร์ทั้งหมดแล้ว ({deleted} รายการ, ถังขยะ {del_bin} รายการ)", "danger")
+                flash(f"ล้างระบบใหม่หมดแล้ว (ออเดอร์ {deleted}, จ่ายแล้ว {del_issued}, ยกเลิก {del_cancel}, ถังขยะ {del_bin})", "success")
             
             # --- [เพิ่ม] CASE: ล้างถังขยะอย่างเดียว ---
             elif scope == "deleted_bin":
