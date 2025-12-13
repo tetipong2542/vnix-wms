@@ -2993,6 +2993,65 @@ def create_app():
         return redirect(url_for("dashboard_deleted"))
     # =========[ /NEW ]=========
 
+    # =========[ NEW ]=========  System Status Page (ตรวจสอบการเชื่อมต่อ Railway Volume)
+    @app.route("/system-status")
+    @login_required
+    def system_status():
+        """หน้าตรวจสอบสถานะระบบและการเชื่อมต่อ Database"""
+
+        # 1. Database Path Information
+        volume_path = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
+        if volume_path:
+            db_location = "Railway Volume (Production)"
+            db_path_full = os.path.join(volume_path, "data.db")
+        else:
+            db_location = "Local Filesystem (Development)"
+            db_path_full = os.path.join(os.path.dirname(__file__), "data.db")
+
+        # 2. Database Size
+        db_size = "N/A"
+        db_exists = False
+        try:
+            if os.path.exists(db_path_full):
+                db_exists = True
+                size_bytes = os.path.getsize(db_path_full)
+                # Convert to MB
+                db_size = f"{size_bytes / (1024 * 1024):.2f} MB"
+        except:
+            pass
+
+        # 3. Count Records
+        try:
+            total_orders = db.session.query(func.count(func.distinct(OrderLine.order_id))).scalar() or 0
+            total_products = db.session.query(func.count(Product.id)).scalar() or 0
+            total_shops = db.session.query(func.count(Shop.id)).scalar() or 0
+            total_users = db.session.query(func.count(User.id)).scalar() or 0
+        except:
+            total_orders = total_products = total_shops = total_users = 0
+
+        # 4. Environment Variables
+        env_vars = {
+            "RAILWAY_VOLUME_MOUNT_PATH": os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "Not Set"),
+            "SECRET_KEY": "***" if os.environ.get("SECRET_KEY") else "Default (vnix-secret)",
+            "APP_NAME": os.environ.get("APP_NAME", "VNIX Order Management"),
+        }
+
+        status_info = {
+            "db_path": db_path_full,
+            "db_location": db_location,
+            "db_size": db_size,
+            "db_exists": db_exists,
+            "volume_path": volume_path or "Not Configured",
+            "total_orders": total_orders,
+            "total_products": total_products,
+            "total_shops": total_shops,
+            "total_users": total_users,
+            "env_vars": env_vars,
+        }
+
+        return render_template("system_status.html", status=status_info)
+    # =========[ /NEW ]=========
+
     @app.route("/import/products", methods=["GET", "POST"])
     @login_required
     def import_products_view():
