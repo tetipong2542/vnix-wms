@@ -113,11 +113,17 @@
         </a>
       {% endif %}
       
+      {% if not is_history_view %}
+        <button id="printSelectedBtn" class="btn btn-danger" onclick="printSelectedOrders()">
+          <i class="bi bi-lock-fill"></i> พิมพ์และล็อกงานที่เลือก
+        </button>
+      {% endif %}
+      
       <button class="btn btn-primary" onclick="window.print()"><i class="bi bi-printer"></i> พิมพ์หน้านี้</button>
       
-      <form method="post" action="{{ url_for('report_lowstock_print') }}" style="display:inline;" onsubmit="return confirm('ยืนยันบันทึกประวัติการพิมพ์?')">
+      <form id="printHistoryForm" method="post" action="{{ url_for('report_lowstock_print') }}" style="display:inline;" onsubmit="return validatePrintHistory()">
         <input type="hidden" name="order_ids" value="{{ csv_oids }}">
-        <button class="btn btn-success text-white" type="submit"><i class="bi bi-save"></i> พิมพ์ (บันทึกประวัติ)</button>
+        <button id="printHistoryBtn" class="btn btn-success text-white" type="submit"><i class="bi bi-save"></i> พิมพ์ (บันทึกประวัติ)</button>
       </form>
       
       <div class="btn-group">
@@ -912,6 +918,86 @@
           alert(j.message || 'อัปเดตรอบไม่สำเร็จ');
         }
       } catch (e) { alert('เกิดข้อผิดพลาด: ' + e); }
+    }
+
+    // ========== Print Selected Orders ==========
+    function printSelectedOrders() {
+      const selected = Array.from(document.querySelectorAll('.order-checkbox:checked')).map(cb => cb.value);
+      
+      if (selected.length === 0) {
+        alert('กรุณาเลือกออเดอร์ที่ต้องการพิมพ์อย่างน้อย 1 รายการ');
+        return;
+      }
+      
+      // ตรวจสอบว่าทุก Order ที่เลือกมีรอบหรือไม่
+      const ordersWithoutRound = [];
+      const allRows = document.querySelectorAll('#reportTable tbody tr');
+      
+      allRows.forEach(row => {
+        const orderNo = row.dataset.orderNo;
+        if (selected.includes(orderNo)) {
+          const roundCell = row.querySelector('td:nth-child(15)'); // คอลัมน์รอบ
+          const roundText = roundCell ? roundCell.textContent.trim() : '-';
+          if (roundText === '-' || roundText === '') {
+            ordersWithoutRound.push(orderNo);
+          }
+        }
+      });
+      
+      if (ordersWithoutRound.length > 0) {
+        alert(`ไม่สามารถพิมพ์ได้!\n\nมี ${ordersWithoutRound.length} ออเดอร์ที่ยังไม่มีการบันทึกรอบ:\n${ordersWithoutRound.slice(0, 5).join('\n')}${ordersWithoutRound.length > 5 ? '\n...' : ''}\n\nกรุณาบันทึกรอบก่อนพิมพ์`);
+        return;
+      }
+      
+      if (!confirm(`ต้องการพิมพ์และบันทึกประวัติ ${selected.length} ออเดอร์ใช่หรือไม่?`)) {
+        return;
+      }
+      
+      // Submit form
+      const form = document.createElement('form');
+      form.method = 'post';
+      form.action = '{{ url_for("report_lowstock_print") }}';
+      
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'order_ids';
+      input.value = selected.join(',');
+      form.appendChild(input);
+      
+      document.body.appendChild(form);
+      form.submit();
+    }
+
+    // ========== Validate Print History Button ==========
+    function validatePrintHistory() {
+      const allOrders = "{{ csv_oids }}".split(',').filter(Boolean);
+      
+      if (allOrders.length === 0) {
+        alert('ไม่พบออเดอร์ในรายงานนี้');
+        return false;
+      }
+      
+      // ตรวจสอบว่าทุก Order มีรอบหรือไม่
+      const ordersWithoutRound = [];
+      const allRows = document.querySelectorAll('#reportTable tbody tr');
+      
+      allRows.forEach(row => {
+        const orderNo = row.dataset.orderNo;
+        if (allOrders.includes(orderNo)) {
+          const roundCell = row.querySelector('td:nth-child(15)'); // คอลัมน์รอบ
+          const roundText = roundCell ? roundCell.textContent.trim() : '-';
+          if (roundText === '-' || roundText === '') {
+            ordersWithoutRound.push(orderNo);
+          }
+        }
+      });
+      
+      if (ordersWithoutRound.length > 0) {
+        alert(`ไม่สามารถพิมพ์ได้!\n\nมี ${ordersWithoutRound.length} ออเดอร์ที่ยังไม่มีการบันทึกรอบ:\n${ordersWithoutRound.slice(0, 5).join('\n')}${ordersWithoutRound.length > 5 ? '\n...' : ''}\n\nกรุณาบันทึกรอบก่อนพิมพ์`);
+        return false;
+      }
+      
+      return confirm('ยืนยันบันทึกประวัติการพิมพ์?');
     }
 
     function setToday(btn, startName, endName) {
