@@ -90,3 +90,19 @@ class OrderLine(db.Model):
     def is_printed_picking(self):
         """ตรวจสอบว่าพิมพ์ Picking แล้วหรือยัง"""
         return self.printed_picking and self.printed_picking > 0
+
+class SkuPrintHistory(db.Model):
+    """เก็บประวัติการพิมพ์แยกตาม SKU สำหรับ Picking List"""
+    __tablename__ = "sku_print_history"
+    id = db.Column(db.Integer, primary_key=True)
+    sku = db.Column(db.String(64), nullable=False, index=True)
+    platform = db.Column(db.String(20), index=True)
+    shop_id = db.Column(db.Integer, index=True)
+    logistic = db.Column(db.String(255), index=True)
+    print_count = db.Column(db.Integer, default=1)  # จำนวนครั้งที่พิมพ์
+    printed_at = db.Column(db.DateTime, default=lambda: datetime.now(TH_TZ))  # เวลาที่พิมพ์
+    printed_by = db.Column(db.String(64))  # ผู้พิมพ์
+
+    __table_args__ = (
+        db.Index('idx_sku_print_lookup', 'sku', 'platform', 'shop_id', 'logistic'),
+    )

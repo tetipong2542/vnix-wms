@@ -464,6 +464,57 @@ def create_app():
         except Exception:
             return 0
 
+    # ========== [NEW] Performance Optimization: Batch Stock Lookup ==========
+    def _batch_stock_lookup(skus: set[str]) -> dict[str, int]:
+        """
+        Batch lookup stock quantities for multiple SKUs.
+        Replaces N+1 queries with 1-2 bulk queries.
+
+        Args:
+            skus: Set of SKU strings to lookup
+
+        Returns:
+            dict mapping SKU -> stock_qty
+        """
+        if not skus:
+            return {}
+
+        stock_map: dict[str, int] = {}
+
+        # Try Product table first (if it has stock_qty column)
+        try:
+            products = Product.query.filter(Product.sku.in_(skus)).all()
+            for prod in products:
+                if prod and hasattr(prod, "stock_qty"):
+                    try:
+                        stock_map[str(prod.sku).strip()] = int(prod.stock_qty or 0)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        # For remaining SKUs, check Stock table
+        remaining_skus = skus - set(stock_map.keys())
+        if remaining_skus:
+            try:
+                stocks = Stock.query.filter(Stock.sku.in_(remaining_skus)).all()
+                for st in stocks:
+                    if st and st.qty is not None:
+                        try:
+                            stock_map[str(st.sku).strip()] = int(st.qty)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        # Fill in zeros for missing SKUs
+        for sku in skus:
+            if sku not in stock_map:
+                stock_map[sku] = 0
+
+        return stock_map
+    # ========== /END Batch Stock Lookup ==========
+
     def _build_allqty_map(rows: list[dict]) -> dict[str, int]:
         total_by_sku: dict[str, int] = {}
         for r in rows:
@@ -871,6 +922,81 @@ def create_app():
         """).bindparams(bindparam("oids", expanding=True))
         db.session.execute(sql, {"ts": when_iso, "byu": username, "oids": oids})
         db.session.commit()
+
+    # --------------------------
+    # SKU Print History helpers
+    # --------------------------
+    def _record_sku_print_history(skus: list[str], platform: str, shop_id: int | None, logistic: str, username: str | None, when_dt):
+        """บันทึกการพิมพ์แยกตาม SKU"""
+        from models import SkuPrintHistory
+        if not skus:
+            return
+
+        for sku in skus:
+            # Check if this SKU with same context was already printed
+            existing = SkuPrintHistory.query.filter_by(
+                sku=sku,
+                platform=platform or "",
+                shop_id=shop_id,
+                logistic=logistic or ""
+            ).order_by(SkuPrintHistory.printed_at.desc()).first()
+
+            if existing:
+                # Increment print count
+                new_record = SkuPrintHistory(
+                    sku=sku,
+                    platform=platform or "",
+                    shop_id=shop_id,
+                    logistic=logistic or "",
+                    print_count=existing.print_count + 1,
+                    printed_at=when_dt,
+                    printed_by=username
+                )
+            else:
+                # First print
+                new_record = SkuPrintHistory(
+                    sku=sku,
+                    platform=platform or "",
+                    shop_id=shop_id,
+                    logistic=logistic or "",
+                    print_count=1,
+                    printed_at=when_dt,
+                    printed_by=username
+                )
+
+            db.session.add(new_record)
+
+        db.session.commit()
+
+    def _get_sku_print_counts(skus: list[str], platform: str, shop_id: int | None, logistic: str) -> dict[str, dict]:
+        """ดึงข้อมูลการพิมพ์ต่อ SKU - คืนค่า {sku: {count, printed_at, printed_by}}"""
+        from models import SkuPrintHistory
+        if not skus:
+            return {}
+
+        result = {}
+        for sku in skus:
+            latest = SkuPrintHistory.query.filter_by(
+                sku=sku,
+                platform=platform or "",
+                shop_id=shop_id,
+                logistic=logistic or ""
+            ).order_by(SkuPrintHistory.printed_at.desc()).first()
+
+            if latest:
+                result[sku] = {
+                    "count": latest.print_count,
+                    "printed_at": latest.printed_at,
+                    "printed_by": latest.printed_by
+                }
+            else:
+                result[sku] = {
+                    "count": 0,
+                    "printed_at": None,
+                    "printed_by": None
+                }
+
+        return result
 
     def _inject_scan_status(rows: list[dict]):
         """ดึงข้อมูลว่าออเดอร์ไหนสแกนแล้วบ้าง"""
@@ -1318,7 +1444,7 @@ def create_app():
     def dashboard():
         platform = normalize_platform(request.args.get("platform"))
         shop_id = request.args.get("shop_id")
-        show_change = (request.args.get("show_change") or "").strip().upper()  # [NEW] Filter: สถานะเปลี่ยน (Warehouse Receive)
+        show_change = (request.args.get("show_change") or "").strip().upper() 
         
         # [แก้ไข] เปลี่ยนจาก import_date เดี่ยว เป็น Range
         import_from_str = request.args.get("import_from")
@@ -1327,19 +1453,48 @@ def create_app():
         date_from = request.args.get("date_from")
         date_to = request.args.get("date_to")
         status = request.args.get("status")
+        # [FIX] แก้ไข status ที่เป็น string "None" ให้เป็น None จริงๆ
+        if status and status.strip().lower() in ("none", ""):
+            status = None
         q = (request.args.get("q") or "").strip()  # รับค่าคำค้นหา Global Search
         all_time = request.args.get("all_time")  # Flag สำหรับดูทั้งหมด
         mode = request.args.get("mode")  # [NEW] โหมด Order ปัจจุบัน (today)
 
         shops = Shop.query.order_by(Shop.name.asc()).all()
 
-        # แปลงวันที่
+        # แปลงวันที่ (with error handling)
         def _p(s): return parse_date_any(s)
-        
-        imp_from = _p(import_from_str)
-        imp_to = _p(import_to_str)
-        d_from = datetime.combine(_p(date_from), datetime.min.time(), tzinfo=TH_TZ) if date_from else None
-        d_to = datetime.combine(_p(date_to) + timedelta(days=1), datetime.min.time(), tzinfo=TH_TZ) if date_to else None
+
+        # Parse import dates with validation
+        imp_from = None
+        if import_from_str:
+            imp_from = _p(import_from_str)
+            if imp_from is None:
+                flash(f"⚠️ รูปแบบวันที่ 'นำเข้า (เริ่ม)' ไม่ถูกต้อง: {import_from_str}", "warning")
+
+        imp_to = None
+        if import_to_str:
+            imp_to = _p(import_to_str)
+            if imp_to is None:
+                flash(f"⚠️ รูปแบบวันที่ 'นำเข้า (ถึง)' ไม่ถูกต้อง: {import_to_str}", "warning")
+
+        # Parse date_from with validation
+        d_from = None
+        if date_from:
+            parsed_date_from = _p(date_from)
+            if parsed_date_from:
+                d_from = datetime.combine(parsed_date_from, datetime.min.time(), tzinfo=TH_TZ)
+            else:
+                flash(f"⚠️ รูปแบบวันที่ 'สั่งซื้อ (เริ่ม)' ไม่ถูกต้อง: {date_from}", "warning")
+
+        # Parse date_to with validation
+        d_to = None
+        if date_to:
+            parsed_date_to = _p(date_to)
+            if parsed_date_to:
+                d_to = datetime.combine(parsed_date_to + timedelta(days=1), datetime.min.time(), tzinfo=TH_TZ)
+            else:
+                flash(f"⚠️ รูปแบบวันที่ 'สั่งซื้อ (ถึง)' ไม่ถูกต้อง: {date_to}", "warning")
 
         # ตรวจสอบว่ามี Filter วันที่หรือไม่
         has_date_filter = bool(imp_from or imp_to or d_from or d_to)
@@ -1404,12 +1559,18 @@ def create_app():
         elif has_date_filter:
             # CASE 2: มีการเลือกช่วงเวลา (Import Date หรือ Order Date) -> ดึงตามช่วงเวลานั้น
             filters = base_filters.copy()
-            filters["active_only"] = False
+            # ⚠️ ไม่ตั้ง active_only=False เพื่อให้ allocation.py ทำงานถูกต้อง
             filters["import_from"] = imp_from
             filters["import_to"] = imp_to
             filters["date_from"] = d_from
             filters["date_to"] = d_to
+
+            # Debug logging
+            app.logger.info(f"📅 Date Filter Applied: date_from={d_from}, date_to={d_to}, imp_from={imp_from}, imp_to={imp_to}")
+            app.logger.info(f"🔍 Filter Dictionary: {filters}")
+
             rows, _ = compute_allocation(db.session, filters)
+            app.logger.info(f"📊 Date Filter Results: {len(rows)} rows returned")
             
         else:
             # CASE 3: Default View (ไม่มี Filter วันที่ และไม่ใช่ All Time)
@@ -1465,24 +1626,22 @@ def create_app():
             r["is_scanned"] = bool(r.get("scanned_at"))
         # Process Row Attributes
         totals = _build_allqty_map(rows)
+
+        # [PERFORMANCE FIX] Batch stock lookup - ดึง stock_qty ทั้งหมดครั้งเดียว (แทน N+1 queries)
+        skus_to_lookup = {
+            (r.get("sku") or "").strip()
+            for r in rows
+            if "stock_qty" not in r and r.get("sku")
+        }
+        stock_map = _batch_stock_lookup(skus_to_lookup)
+
         for r in rows:
             oid = (r.get("order_id") or "").strip()
-            
-            # เติม stock
+
+            # เติม stock จาก batch lookup
             if "stock_qty" not in r:
                 sku = (r.get("sku") or "").strip()
-                stock_qty = 0
-                if sku:
-                    prod = Product.query.filter_by(sku=sku).first()
-                    if prod and hasattr(prod, "stock_qty"):
-                        try:
-                            stock_qty = int(prod.stock_qty or 0)
-                        except Exception:
-                            stock_qty = 0
-                    else:
-                        st = Stock.query.filter_by(sku=sku).first()
-                        stock_qty = int(st.qty) if st and st.qty is not None else 0
-                r["stock_qty"] = stock_qty
+                r["stock_qty"] = stock_map.get(sku, 0)
 
             r["allqty"] = int(totals.get((r.get("sku") or "").strip(), r.get("qty", 0)) or 0)
             r["accepted"] = bool(r.get("accepted", False))
@@ -1543,71 +1702,89 @@ def create_app():
         scope_rows = list(rows)  # สำรองข้อมูลไว้คำนวณ KPI
         
         # Helper lists for KPI counts from scope
+        # ===== [FIX] ดึง Set ของ Order ที่ถูกลบ (Soft Delete) เพื่อกรองออกจาก KPI =====
+        deleted_oids_set = _deleted_oids_set()
+
         kpi_orders_ready = _orders_ready_set(scope_rows)
-        
+
         # +++ [เพิ่ม] เก็บรายชื่อ Order ที่พร้อมจริงๆ (จากข้อมูลทั้งหมด) เอาไว้ใช้คุมปุ่มกดรับ
         # เพราะเดี๋ยว kpi_orders_ready จะถูกเขียนทับถ้ามีการ Search
         global_ready_oids = kpi_orders_ready.copy()
-        
+
         kpi_orders_low = _orders_lowstock_order_set(scope_rows)
         kpi_orders_nosales = _orders_no_sales_set(scope_rows)
         kpi_orders_not_in_sbs = _orders_not_in_sbs_set(scope_rows)
-        
+
         # [แก้ไข] ลบ Order ที่ยกเลิกออกจาก KPI "ยังไม่มีใบขาย" และ "ยังไม่เข้า SBS"
         # เพื่อไม่ให้ยอดเด้งทั้งที่ยกเลิกไปแล้ว
         cancelled_all_ids = set(cancelled_map.keys())
         kpi_orders_nosales = kpi_orders_nosales - cancelled_all_ids
         kpi_orders_not_in_sbs = kpi_orders_not_in_sbs - cancelled_all_ids
-        
+
+        # [FIX] ลบ Order ที่ถูกลบ (Soft Delete) ออกจาก KPI ทั้งหมด
+        kpi_orders_ready = kpi_orders_ready - deleted_oids_set
+        kpi_orders_low = kpi_orders_low - deleted_oids_set
+        kpi_orders_nosales = kpi_orders_nosales - deleted_oids_set
+        kpi_orders_not_in_sbs = kpi_orders_not_in_sbs - deleted_oids_set
+
         # [NEW] คำนวณ Set ของ Order ที่เป็น "ไม่มีสินค้า" หรือ "สินค้าไม่พอส่ง"
         # ใช้ Set เพื่อให้เลข Order ไม่ซ้ำกัน
         kpi_orders_problem = set()
         for r in scope_rows:
             # [แก้ไข] เพิ่มเงื่อนไข: ต้องยังไม่จ่ายงาน (is_issued) ด้วย ถึงจะนับเข้ากอง 3
-            if not r.get("packed") and not r.get("is_cancelled") and not r.get("is_issued"):
+            oid = (r.get("order_id") or "").strip()
+            if (not r.get("packed") and not r.get("is_cancelled") and not r.get("is_issued")
+                and oid not in deleted_oids_set):  # [FIX] กรอง deleted orders ออก
                 status_alloc = (r.get("allocation_status") or "").strip().upper()
                 if status_alloc in ("SHORTAGE", "NOT_ENOUGH"):
-                    oid = (r.get("order_id") or "").strip()
                     if oid:
                         kpi_orders_problem.add(oid)
-        
+
         # [NEW] คำนวณ Set ของ Order ที่เป็น "บิลเปล่า" (BILL_EMPTY)
         kpi_orders_bill_empty = set()
         for r in scope_rows:
-            if not r.get("packed") and not r.get("is_cancelled"):
+            oid = (r.get("order_id") or "").strip()
+            if (not r.get("packed") and not r.get("is_cancelled")
+                and oid not in deleted_oids_set):  # [FIX] กรอง deleted orders ออก
                 status_alloc = (r.get("allocation_status") or "").strip().upper()
                 if status_alloc == "BILL_EMPTY":
-                    oid = (r.get("order_id") or "").strip()
                     if oid:
                         kpi_orders_bill_empty.add(oid)
 
         # ===== Scan (Barcode) KPI Sets =====
-        def _active_oids(source_rows: list[dict]) -> set[str]:
+        def _active_oids(source_rows: list[dict], deleted_oids: set[str]) -> set[str]:
+            """คำนวณ Order ที่ Active (ไม่ได้ Pack, Cancel, หรือ Delete)"""
             return {
                 (r.get("order_id") or "").strip()
                 for r in source_rows
-                if r.get("order_id") and not r.get("packed") and not r.get("is_cancelled")
+                if r.get("order_id")
+                and not r.get("packed")
+                and not r.get("is_cancelled")
+                and (r.get("order_id") or "").strip() not in deleted_oids  # [FIX] กรอง deleted orders ออก
             }
 
-        kpi_active_oids = _active_oids(scope_rows)
+        kpi_active_oids = _active_oids(scope_rows, deleted_oids_set)
         kpi_orders_scanned = {
             (r.get("order_id") or "").strip()
             for r in scope_rows
             if r.get("order_id")
             and not r.get("packed")
             and not r.get("is_cancelled")
+            and (r.get("order_id") or "").strip() not in deleted_oids_set  # [FIX] กรอง deleted orders ออก
             and r.get("scanned_at")
         }
         kpi_orders_not_scanned = kpi_active_oids - kpi_orders_scanned
 
         # ===== Warehouse Receive (Issued but Not Packed) KPI Sets =====
-        def _compute_wh_receive_sets(source_rows: list[dict]):
+        def _compute_wh_receive_sets(source_rows: list[dict], deleted_oids: set[str]):
+            """คำนวณ Set ของ Order ที่จ่ายงานแล้ว แต่ยังไม่ Pack (กรอง deleted orders ออก)"""
             issued_active_oids = {
                 (r.get("order_id") or "").strip()
                 for r in source_rows
                 if r.get("order_id")
                 and r.get("is_issued")
                 and not r.get("packed")
+                and (r.get("order_id") or "").strip() not in deleted_oids  # [FIX] กรอง deleted orders ออก
             }
             if not issued_active_oids:
                 return {
@@ -1652,7 +1829,7 @@ def create_app():
             total = set().union(g1, g2, g3)
             return {"total": total, "g1": g1, "g2": g2, "g3": g3, "issued_date": date_map, "src": src_map}
 
-        wh_sets = _compute_wh_receive_sets(scope_rows)
+        wh_sets = _compute_wh_receive_sets(scope_rows, deleted_oids_set)
         wh_total_oids = wh_sets["total"]
         wh_g1_oids = wh_sets["g1"]
         wh_g2_oids = wh_sets["g2"]
@@ -1831,11 +2008,17 @@ def create_app():
             kpi_orders_low = _orders_lowstock_order_set(scope_rows)
             kpi_orders_nosales = _orders_no_sales_set(scope_rows)
             kpi_orders_not_in_sbs = _orders_not_in_sbs_set(scope_rows)
-            
+
             # [แก้ไข] ลบ Order ที่ยกเลิกออกจาก KPI "ยังไม่มีใบขาย" และ "ยังไม่เข้า SBS" (กรณี search)
             cancelled_all_ids = set(cancelled_map.keys())
             kpi_orders_nosales = kpi_orders_nosales - cancelled_all_ids
             kpi_orders_not_in_sbs = kpi_orders_not_in_sbs - cancelled_all_ids
+
+            # [FIX] ลบ Order ที่ถูกลบ (Soft Delete) ออกจาก KPI ทั้งหมด (กรณี search)
+            kpi_orders_ready = kpi_orders_ready - deleted_oids_set
+            kpi_orders_low = kpi_orders_low - deleted_oids_set
+            kpi_orders_nosales = kpi_orders_nosales - deleted_oids_set
+            kpi_orders_not_in_sbs = kpi_orders_not_in_sbs - deleted_oids_set
             
             kpi_packed_oids = set(r.get("order_id") for r in scope_rows if r.get("packed"))
             
@@ -1873,7 +2056,7 @@ def create_app():
                             kpi_orders_bill_empty.add(oid)
 
             # Recalculate scan sets for search scope
-            kpi_active_oids = _active_oids(scope_rows)
+            kpi_active_oids = _active_oids(scope_rows, deleted_oids_set)
             kpi_orders_scanned = {
                 (r.get("order_id") or "").strip()
                 for r in scope_rows
@@ -1885,7 +2068,7 @@ def create_app():
             kpi_orders_not_scanned = kpi_active_oids - kpi_orders_scanned
 
             # Recalculate warehouse-receive sets for search scope
-            wh_sets = _compute_wh_receive_sets(scope_rows)
+            wh_sets = _compute_wh_receive_sets(scope_rows, deleted_oids_set)
             wh_total_oids = wh_sets["total"]
             wh_g1_oids = wh_sets["g1"]
             wh_g2_oids = wh_sets["g2"]
@@ -2005,56 +2188,139 @@ def create_app():
         today_date = now_thai().date()
 
         def _count_split(oid_set, source_rows):
-            """ฟังก์ชันช่วยนับ: คืนค่า (total, old_count, today_count)"""
+            """
+            ฟังก์ชันช่วยนับ: คืนค่า (total, old_count, today_count)
+
+            แยกนับ Orders เป็น 2 กลุ่ม:
+            - old (ค้าง): Orders ที่ import_date < วันนี้
+            - today (วันนี้): Orders ที่ import_date == วันนี้ หรือไม่มี import_date
+
+            [IMPROVED] ปรับปรุง logic การนับให้ถูกต้อง:
+            - ใช้เฉพาะ import_date (ไม่ fallback ไปใช้ order_time)
+            - ถ้าไม่มี import_date → ถือว่าเป็น "วันนี้"
+            - Support หลายรูปแบบวันที่
+            - เพิ่ม error handling และ logging
+            """
             total = len(oid_set)
             old_c = 0
             today_c = 0
-            
+            unknown_c = 0  # นับ orders ที่ไม่มี import_date
+            future_c = 0   # นับ orders ที่มีวันที่ในอนาคต (ไม่ควรมี)
+            parse_error_c = 0  # นับ orders ที่ parse วันที่ไม่ได้
+
             # สร้าง Dict เพื่อ map order_id -> import_date จาก source_rows
             oid_date_map = {}
             for r in source_rows:
                 if r.get("order_id"):
                     d = r.get("import_date")
-                    # Fallback: ถ้าไม่มี import_date ให้ใช้วันที่สั่ง
-                    if not d and r.get("order_time"):
-                        if isinstance(r["order_time"], datetime):
-                            d = r["order_time"].date()
+
+                    # [FIX] ลบ fallback ที่ใช้ order_time ออก
+                    # ให้ใช้เฉพาะ import_date เท่านั้น
+                    # เพราะ order_time = วันที่ลูกค้าสั่ง (อาจเก่ากว่า)
+                    # import_date = วันที่ import เข้าระบบ (ถูกต้อง)
+
+                    if d:
+                        # Normalize เป็น date object
+                        if isinstance(d, datetime):
+                            d = d.date()
+                        elif isinstance(d, str):
+                            # ลอง parse หลายรูปแบบ
+                            parsed = None
+                            for fmt in ["%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y"]:
+                                try:
+                                    parsed = datetime.strptime(d, fmt).date()
+                                    break
+                                except:
+                                    continue
+
+                            if parsed:
+                                d = parsed
+                            else:
+                                # Parse ล้มเหลวทุกรูปแบบ → ให้เป็น None
+                                d = None
+                                parse_error_c += 1
+
                     oid_date_map[r["order_id"]] = d
-            
+
             for oid in oid_set:
                 d = oid_date_map.get(oid)
-                # ตรวจสอบว่าเป็นเก่าหรือใหม่
-                is_old = True
-                if d:
-                    # แปลงเป็น date object ถ้าจำเป็น
-                    if isinstance(d, datetime):
-                        d = d.date()
-                    elif isinstance(d, str):
-                        try:
-                            d = datetime.strptime(d, "%Y-%m-%d").date()
-                        except:
-                            d = today_date
 
-                    if d >= today_date:
-                        is_old = False
-                
-                if is_old:
-                    old_c += 1
-                else:
+                if d is None:
+                    # [FIX] ไม่มี import_date → ให้ถือว่าเป็น "วันนี้"
+                    # (สมมติว่า order ที่ไม่มี import_date คือ import วันนี้)
                     today_c += 1
-                    
+                    unknown_c += 1
+                elif d == today_date:
+                    # [FIX] เปลี่ยนจาก >= เป็น ==
+                    # เพื่อให้นับเฉพาะวันนี้จริงๆ
+                    today_c += 1
+                elif d > today_date:
+                    # วันที่ในอนาคต (ไม่ควรมี)
+                    today_c += 1  # ให้นับเป็นวันนี้ชั่วคราว
+                    future_c += 1
+                else:
+                    # d < today_date → ค้าง (เก่า)
+                    old_c += 1
+
+            # [NEW] Debug logging (เฉพาะกรณีมีปัญหา)
+            if unknown_c > 0 or future_c > 0 or parse_error_c > 0:
+                import sys
+                msg_parts = []
+                if unknown_c > 0:
+                    msg_parts.append(f"{unknown_c} orders without import_date (counted as today)")
+                if future_c > 0:
+                    msg_parts.append(f"{future_c} orders with future date")
+                if parse_error_c > 0:
+                    msg_parts.append(f"{parse_error_c} orders with unparseable date")
+
+                print(f"⚠️  KPI Count Warning: {', '.join(msg_parts)}", file=sys.stderr)
+
             return total, old_c, today_c
 
         def _count_split_by_issued_at(oid_set: set[str], oid_issued_date_map: dict[str, date]):
+            """
+            ฟังก์ชันช่วยนับ (สำหรับคลังรับงาน): คืนค่า (total, old_count, today_count)
+
+            แยกนับ Orders ตาม issued_at (วันที่จ่ายงาน):
+            - old (ค้าง): Orders ที่ issued_at < วันนี้
+            - today (วันนี้): Orders ที่ issued_at == วันนี้ หรือไม่มี issued_at
+
+            [IMPROVED] ปรับปรุง logic ให้สอดคล้องกับ _count_split()
+            """
             total = len(oid_set)
             old_c = 0
             today_c = 0
+            unknown_c = 0  # นับ orders ที่ไม่มี issued_at
+            future_c = 0   # นับ orders ที่มีวันที่ในอนาคต
+
             for oid in oid_set:
                 d = oid_issued_date_map.get(oid)
-                if d and d >= today_date:
+
+                if d is None:
+                    # [FIX] ไม่มี issued_at → ให้ถือว่าเป็น "วันนี้"
                     today_c += 1
+                    unknown_c += 1
+                elif d == today_date:
+                    # [FIX] เปลี่ยนจาก >= เป็น ==
+                    today_c += 1
+                elif d > today_date:
+                    # วันที่ในอนาคต (ไม่ควรมี)
+                    today_c += 1
+                    future_c += 1
                 else:
+                    # d < today_date → ค้าง (เก่า)
                     old_c += 1
+
+            # [NEW] Debug logging (เฉพาะกรณีมีปัญหา)
+            if unknown_c > 0 or future_c > 0:
+                import sys
+                msg_parts = []
+                if unknown_c > 0:
+                    msg_parts.append(f"{unknown_c} issued orders without issued_at")
+                if future_c > 0:
+                    msg_parts.append(f"{future_c} issued orders with future date")
+                print(f"⚠️  Warehouse KPI Warning: {', '.join(msg_parts)}", file=sys.stderr)
+
             return total, old_c, today_c
 
         # คำนวณยอดแยกของแต่ละกอง
@@ -2152,11 +2418,12 @@ def create_app():
             # --- กลุ่มงานจบ (ใช้ยอดเดิม) ---
             # นับจาก Scope (ไม่ว่าจะซ่อนในตารางหรือไม่ ก็จะโชว์ตัวเลข)
             # [แก้ไข] รวม BILL_EMPTY ในการนับ ready เพราะสามารถรับงานได้เหมือนกัน
-            "ready": sum(1 for r in scope_rows if r.get("allocation_status") in ("READY_ACCEPT", "BILL_EMPTY") and not r.get("packed") and not r.get("is_cancelled")),
-            "accepted": sum(1 for r in scope_rows if r.get("allocation_status") == "ACCEPTED"),
-            "low": sum(1 for r in scope_rows if r.get("allocation_status") == "LOW_STOCK" and not r.get("packed") and not r.get("is_cancelled")),
-            "nostock": sum(1 for r in scope_rows if r.get("allocation_status") == "SHORTAGE" and not r.get("packed") and not r.get("is_cancelled")),
-            "notenough": sum(1 for r in scope_rows if r.get("allocation_status") == "NOT_ENOUGH" and not r.get("packed") and not r.get("is_cancelled")),
+            # [FIX] กรอง deleted orders ออกจากการคำนวณ KPI ทั้งหมด
+            "ready": sum(1 for r in scope_rows if r.get("allocation_status") in ("READY_ACCEPT", "BILL_EMPTY") and not r.get("packed") and not r.get("is_cancelled") and (r.get("order_id") or "").strip() not in deleted_oids_set),
+            "accepted": sum(1 for r in scope_rows if r.get("allocation_status") == "ACCEPTED" and (r.get("order_id") or "").strip() not in deleted_oids_set),
+            "low": sum(1 for r in scope_rows if r.get("allocation_status") == "LOW_STOCK" and not r.get("packed") and not r.get("is_cancelled") and (r.get("order_id") or "").strip() not in deleted_oids_set),
+            "nostock": sum(1 for r in scope_rows if r.get("allocation_status") == "SHORTAGE" and not r.get("packed") and not r.get("is_cancelled") and (r.get("order_id") or "").strip() not in deleted_oids_set),
+            "notenough": sum(1 for r in scope_rows if r.get("allocation_status") == "NOT_ENOUGH" and not r.get("packed") and not r.get("is_cancelled") and (r.get("order_id") or "").strip() not in deleted_oids_set),
             
             "packed": len(kpi_packed_oids),
             
@@ -5518,6 +5785,17 @@ def create_app():
 
         # เติม stock_qty / logistic ให้ครบ + ไม่เอา PACKED (ข้อ 1)
         safe = []
+        # [PERFORMANCE FIX] Batch stock lookup ก่อน loop
+        skus_to_lookup = {
+            (r.get("sku") or "").strip()
+            for r in rows
+            if "stock_qty" not in r and r.get("sku")
+            and (r.get("order_id") or "").strip() not in packed_oids
+            and (str(r.get("sales_status") or "")).upper() != "PACKED"
+            and not bool(r.get("packed", False))
+        }
+        stock_map = _batch_stock_lookup(skus_to_lookup)
+
         for r in rows:
             r = dict(r)
             # กรองออเดอร์ที่อยู่ในลิสต์แพ็คแล้วออก
@@ -5528,18 +5806,7 @@ def create_app():
                 continue
             if "stock_qty" not in r:
                 sku = (r.get("sku") or "").strip()
-                stock_qty = 0
-                if sku:
-                    prod = Product.query.filter_by(sku=sku).first()
-                    if prod and hasattr(prod, "stock_qty"):
-                        try:
-                            stock_qty = int(prod.stock_qty or 0)
-                        except Exception:
-                            stock_qty = 0
-                    else:
-                        st = Stock.query.filter_by(sku=sku).first()
-                        stock_qty = int(st.qty) if st and st.qty is not None else 0
-                r["stock_qty"] = stock_qty
+                r["stock_qty"] = stock_map.get(sku, 0)
             r["logistic"] = r.get("logistic") or r.get("logistic_type") or "-"
             # ไม่ต้อง _recompute เพราะ allocation_status มาจาก compute_allocation แล้ว
             safe.append(r)
@@ -6416,6 +6683,17 @@ def create_app():
 
         # เติม stock_qty/logistic
         safe = []
+        # [PERFORMANCE FIX] Batch stock lookup ก่อน loop
+        skus_to_lookup = {
+            (r.get("sku") or "").strip()
+            for r in rows
+            if "stock_qty" not in r and r.get("sku")
+            and (r.get("order_id") or "").strip() not in packed_oids
+            and (str(r.get("sales_status") or "")).upper() != "PACKED"
+            and not bool(r.get("packed", False))
+        }
+        stock_map = _batch_stock_lookup(skus_to_lookup)
+
         for r in rows:
             r = dict(r)
             # กรองออเดอร์ที่อยู่ในลิสต์แพ็คแล้วออก
@@ -6425,18 +6703,7 @@ def create_app():
                 continue
             if "stock_qty" not in r:
                 sku = (r.get("sku") or "").strip()
-                stock_qty = 0
-                if sku:
-                    prod = Product.query.filter_by(sku=sku).first()
-                    if prod and hasattr(prod, "stock_qty"):
-                        try:
-                            stock_qty = int(prod.stock_qty or 0)
-                        except Exception:
-                            stock_qty = 0
-                    else:
-                        st = Stock.query.filter_by(sku=sku).first()
-                        stock_qty = int(st.qty) if st and st.qty is not None else 0
-                r["stock_qty"] = stock_qty
+                r["stock_qty"] = stock_map.get(sku, 0)
             r["logistic"] = r.get("logistic") or r.get("logistic_type") or "-"
             # ไม่ต้อง _recompute_allocation_row(r) เพราะ compute_allocation คำนวณให้แล้ว
             safe.append(r)
@@ -6813,21 +7080,20 @@ def create_app():
             rows = filtered_rows
 
         safe = []
+        # [PERFORMANCE FIX] Batch stock lookup ก่อน loop
+        skus_to_lookup = {
+            (r.get("sku") or "").strip()
+            for r in rows
+            if "stock_qty" not in r and r.get("sku")
+        }
+        stock_map = _batch_stock_lookup(skus_to_lookup)
+
         for r in rows:
             r = dict(r)
             r["logistic"] = r.get("logistic") or r.get("logistic_type") or "-"
             if "stock_qty" not in r:
                 sku = (r.get("sku") or "").strip()
-                stock_qty = 0
-                if sku:
-                    prod = Product.query.filter_by(sku=sku).first()
-                    if prod and hasattr(prod, "stock_qty"):
-                        try: stock_qty = int(prod.stock_qty or 0)
-                        except Exception: stock_qty = 0
-                    else:
-                        st = Stock.query.filter_by(sku=sku).first()
-                        stock_qty = int(st.qty) if st and st.qty is not None else 0
-                r["stock_qty"] = stock_qty
+                r["stock_qty"] = stock_map.get(sku, 0)
             # ไม่ต้อง _recompute เพราะ allocation_status มาจาก compute_allocation แล้ว
             safe.append(r)
 
@@ -7246,6 +7512,17 @@ def create_app():
         packed_oids = _orders_packed_set(rows)
         
         safe = []
+        # [PERFORMANCE FIX] Batch stock lookup ก่อน loop
+        skus_to_lookup = {
+            (r.get("sku") or "").strip()
+            for r in rows
+            if "stock_qty" not in r and r.get("sku")
+            and (r.get("order_id") or "").strip() not in packed_oids
+            and (str(r.get("sales_status") or "")).upper() != "PACKED"
+            and not bool(r.get("packed", False))
+        }
+        stock_map = _batch_stock_lookup(skus_to_lookup)
+
         for r in rows:
             r = dict(r)
             # กรองออเดอร์ที่อยู่ในลิสต์แพ็คแล้วออก
@@ -7256,24 +7533,12 @@ def create_app():
                 continue
             if bool(r.get("packed", False)):
                 continue
-            
+
             # ตรวจ stock_qty (ถ้า compute_allocation ไม่ได้เติมให้)
             if "stock_qty" not in r:
                 sku = (r.get("sku") or "").strip()
-                stock_qty = 0
-                if sku:
-                    prod = Product.query.filter_by(sku=sku).first()
-                    if prod and hasattr(prod, "stock_qty"):
-                        try:
-                            stock_qty = int(prod.stock_qty or 0)
-                        except:
-                            stock_qty = 0
-                    if not prod:
-                        st = Stock.query.filter_by(sku=sku).first()
-                        if st and st.qty is not None:
-                            stock_qty = int(st.qty)
-                r["stock_qty"] = stock_qty
-            
+                r["stock_qty"] = stock_map.get(sku, 0)
+
             r["logistic"] = r.get("logistic") or r.get("logistic_type") or "-"
             # ไม่ต้อง _recompute_allocation_row(r) เพราะ compute_allocation คำนวณให้แล้ว
             safe.append(r)
@@ -8320,6 +8585,27 @@ def create_app():
         # รวมต่อ SKU
         items = _aggregate_picking(safe_rows)
 
+        # Get SKU print counts
+        all_skus = [it.get("sku") for it in items if it.get("sku")]
+        sku_print_info = _get_sku_print_counts(
+            skus=all_skus,
+            platform=platform or "",
+            shop_id=int(shop_id) if shop_id else None,
+            logistic=logistic or ""
+        )
+
+        # Inject per-SKU print info into items
+        for it in items:
+            sku = it.get("sku")
+            if sku and sku in sku_print_info:
+                it["print_count"] = sku_print_info[sku]["count"]
+                it["printed_at"] = sku_print_info[sku]["printed_at"]
+                it["printed_by"] = sku_print_info[sku]["printed_by"]
+            else:
+                it["print_count"] = 0
+                it["printed_at"] = None
+                it["printed_by"] = None
+
         # ===== นับจำนวนครั้งที่พิมพ์ Picking (รวมทั้งชุดงาน) — ใช้ MAX ไม่ใช่ SUM =====
         valid_rows = [r for r in safe_rows if r.get("accepted") and r.get("allocation_status") in ("ACCEPTED", "READY_ACCEPT")]
         order_ids = sorted({(r.get("order_id") or "").strip() for r in valid_rows if r.get("order_id")})
@@ -8429,7 +8715,12 @@ def create_app():
 
         # Idempotency token: กัน request ซ้ำ (double-submit / retry)
         print_token = (request.form.get("print_token") or "").strip()
-        
+
+        # Get selected SKUs from form (comma-separated)
+        selected_skus_raw = (request.form.get("selected_skus") or "").strip()
+        selected_skus = [] if selected_skus_raw.lower() in ("", "all") else \
+            [sku.strip() for sku in selected_skus_raw.split(",") if sku.strip()]
+
         # Get selected order IDs from form (comma-separated)
         # ถ้าเป็น '', 'all', 'ALL' ให้ถือว่า "ไม่ระบุ"
         order_ids_raw = (request.form.get("order_ids") or "").strip()
@@ -8465,13 +8756,15 @@ def create_app():
             safe_rows = [r for r in safe_rows if (r.get("logistic") or "").lower().find(logistic.lower()) >= 0]
 
         valid_rows = [r for r in safe_rows if r.get("accepted") and r.get("allocation_status") in ("ACCEPTED", "READY_ACCEPT")]
-        
+
+        # If specific SKUs were selected, filter to only those
+        if selected_skus:
+            valid_rows = [r for r in valid_rows if (r.get("sku") or "").strip() in selected_skus]
         # If specific order IDs were selected, filter to only those
-        if selected_order_ids:
+        elif selected_order_ids:
             valid_rows = [r for r in valid_rows if (r.get("order_id") or "").strip() in selected_order_ids]
-            oids = sorted(selected_order_ids)
-        else:
-            oids = sorted({(r.get("order_id") or "").strip() for r in valid_rows if r.get("order_id")})
+
+        oids = sorted({(r.get("order_id") or "").strip() for r in valid_rows if r.get("order_id")})
 
         if not oids:
             flash("ไม่พบออเดอร์สำหรับพิมพ์ Picking", "warning")
@@ -8523,13 +8816,39 @@ def create_app():
             _mark_printed(oids, kind="picking", user_id=(cu.id if cu else None), when_iso=now_iso, commit=False)
             # >>> NEW: ย้ายไป Orderจ่ายแล้ว (บันทึกเวลาตอนพิมพ์)
             _mark_issued(oids, user_id=(cu.id if cu else None), source="print:picking", when_dt=now_dt, commit=False)
+
+            # Record SKU print history
+            printed_skus = selected_skus if selected_skus else [r.get("sku") for r in valid_rows if r.get("sku")]
+            if printed_skus:
+                _record_sku_print_history(
+                    skus=printed_skus,
+                    platform=platform or "",
+                    shop_id=int(shop_id) if shop_id else None,
+                    logistic=logistic or "",
+                    username=cu.username if cu else None,
+                    when_dt=now_dt
+                )
+
             db.session.commit()
         else:
             flash("ตรวจพบการส่งซ้ำ ระบบจึงไม่บวกจำนวนครั้งพิมพ์เพิ่ม", "warning")
 
         db.session.expire_all()  # Force refresh to get updated print counts
 
-        items = _aggregate_picking(safe_rows)
+        # Aggregate only selected SKUs (if any were selected)
+
+        rows_for_display = valid_rows if selected_skus else safe_rows
+        items = _aggregate_picking(rows_for_display)
+
+     
+        all_skus = [it.get("sku") for it in items if it.get("sku")]
+        sku_print_info = _get_sku_print_counts(
+            skus=all_skus,
+            platform=platform or "",
+            shop_id=int(shop_id) if shop_id else None,
+            logistic=logistic or ""
+        )
+
         for it in items:
             it["platform"] = platform or "-"
             if shop_id:
@@ -8539,18 +8858,29 @@ def create_app():
                 it["shop"] = "-"
             it["logistic"] = logistic or "-"
 
+
+            sku = it.get("sku")
+            if sku and sku in sku_print_info:
+                it["print_count"] = sku_print_info[sku]["count"]
+                it["printed_at"] = sku_print_info[sku]["printed_at"]
+                it["printed_by"] = sku_print_info[sku]["printed_by"]
+            else:
+                it["print_count"] = 0
+                it["printed_at"] = None
+                it["printed_by"] = None
+
         totals = {
             "total_skus": len(items),
             "total_need_qty": sum(i["need_qty"] for i in items),
             "total_shortage": sum(i["shortage"] for i in items),
         }
         shops = Shop.query.order_by(Shop.name.asc()).all()
-        logistics = sorted(set(r.get("logistic") for r in safe_rows if r.get("logistic")))
+        logistics = sorted(set(r.get("logistic") for r in rows_for_display if r.get("logistic")))
         printed_meta = {"by": (cu.username if cu else "-"), "at": now_thai(), "orders": len(oids), "override": bool(already)}
 
         print_counts_pick = _get_print_counts_local(oids, "picking")
         print_count_overall = max(print_counts_pick.values()) if print_counts_pick else 0
-        
+
         # Use current timestamp and user
         print_timestamp_overall = now_thai()
         print_user_overall = cu.username if cu else None
@@ -8886,12 +9216,32 @@ def create_app():
             s = Shop.query.get(int(shop_id))
             if s:
                 shop_sel_name = f"{s.platform} • {s.name}"
-        
-        # Fill in platform/shop/logistic for each item
+
+        # Get SKU print counts
+        all_skus = [it.get("sku") for it in items if it.get("sku")]
+        sku_print_info = _get_sku_print_counts(
+            skus=all_skus,
+            platform=platform or "",
+            shop_id=int(shop_id) if shop_id else None,
+            logistic=logistic or ""
+        )
+
+        # Fill in platform/shop/logistic for each item + inject per-SKU print info
         for it in items:
             it["platform"] = platform or "-"
             it["shop"] = shop_sel_name or "-"
             it["logistic"] = logistic or "-"
+
+            # Inject per-SKU print info
+            sku = it.get("sku")
+            if sku and sku in sku_print_info:
+                it["print_count"] = sku_print_info[sku]["count"]
+                it["printed_at"] = sku_print_info[sku]["printed_at"]
+                it["printed_by"] = sku_print_info[sku]["printed_by"]
+            else:
+                it["print_count"] = 0
+                it["printed_at"] = None
+                it["printed_by"] = None
         
         totals = {
             "total_skus": len(items),
@@ -9836,6 +10186,207 @@ def create_app():
 
         return redirect(url_for("import_bill_empty_view"))
     # =========[ /NEW ]=========
+
+    # ============================================
+    # DATABASE BACKUP MANAGEMENT
+    # ============================================
+    import zipfile
+    import shutil
+    from pathlib import Path
+
+    # Backup directory
+    BACKUP_DIR = Path(os.getenv('RAILWAY_VOLUME_MOUNT_PATH', '.')) / 'backups'
+    BACKUP_DIR.mkdir(exist_ok=True)
+
+    def get_db_path():
+        """Get the current database file path"""
+        volume_path = os.getenv('RAILWAY_VOLUME_MOUNT_PATH')
+        if volume_path:
+            return os.path.join(volume_path, 'data.db')
+        return 'data.db'
+
+    def create_backup_zip(db_path, output_path):
+        """Create a zip file of the database"""
+        with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            zipf.write(db_path, arcname='data.db')
+        return output_path
+
+    def cleanup_old_backups(max_backups=7):
+        """Keep only the last N backups (auto backups only)"""
+        auto_backups = sorted(
+            [f for f in BACKUP_DIR.glob('backup_auto_*.zip')],
+            key=lambda x: x.stat().st_mtime,
+            reverse=True
+        )
+
+        for old_backup in auto_backups[max_backups:]:
+            try:
+                old_backup.unlink()
+                app.logger.info(f"Deleted old backup: {old_backup.name}")
+            except Exception as e:
+                app.logger.error(f"Failed to delete old backup {old_backup.name}: {e}")
+
+    def scheduled_backup():
+        """Auto backup function to be called by scheduler"""
+        try:
+            db_path = get_db_path()
+            if not os.path.exists(db_path):
+                app.logger.error("Database file not found for auto backup")
+                return
+
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            backup_filename = f'backup_auto_{timestamp}.zip'
+            backup_path = BACKUP_DIR / backup_filename
+
+            create_backup_zip(db_path, backup_path)
+            cleanup_old_backups(max_backups=7)
+
+            app.logger.info(f"Auto backup created: {backup_filename}")
+        except Exception as e:
+            app.logger.exception(f"Auto backup failed: {e}")
+
+    @app.route('/api/backup/current')
+    def download_current_db():
+        """Download current database as zip file (directly from memory)"""
+        try:
+            import io
+
+            db_path = get_db_path()
+            if not os.path.exists(db_path):
+                return jsonify({'error': 'Database file not found'}), 404
+
+            # Create zip file in memory
+            memory_file = io.BytesIO()
+            with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                zipf.write(db_path, arcname='data.db')
+
+            # Seek to beginning of stream
+            memory_file.seek(0)
+
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+            return send_file(
+                memory_file,
+                as_attachment=True,
+                download_name=f'database_{timestamp}.zip',
+                mimetype='application/zip'
+            )
+        except Exception as e:
+            app.logger.exception("Download current DB failed")
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/api/backup/create', methods=['POST'])
+    def create_manual_backup():
+        """Create a manual backup"""
+        try:
+            db_path = get_db_path()
+            if not os.path.exists(db_path):
+                return jsonify({'error': 'Database file not found'}), 404
+
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            backup_filename = f'backup_manual_{timestamp}.zip'
+            backup_path = BACKUP_DIR / backup_filename
+
+            create_backup_zip(db_path, backup_path)
+
+            app.logger.info(f"Manual backup created: {backup_filename}")
+            return jsonify({
+                'success': True,
+                'filename': backup_filename,
+                'message': 'Backup created successfully'
+            })
+        except Exception as e:
+            app.logger.exception("Create manual backup failed")
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/api/backup/list')
+    def list_backups():
+        """List all backup files"""
+        try:
+            backups = []
+            for backup_file in sorted(BACKUP_DIR.glob('backup_*.zip'), key=lambda x: x.stat().st_mtime, reverse=True):
+                stat = backup_file.stat()
+                size_mb = stat.st_size / (1024 * 1024)
+                created = datetime.fromtimestamp(stat.st_mtime)
+
+                # Determine backup type
+                backup_type = 'auto' if 'auto' in backup_file.name else 'manual'
+
+                backups.append({
+                    'filename': backup_file.name,
+                    'size': f'{size_mb:.2f} MB',
+                    'created': created.strftime('%Y-%m-%d %H:%M:%S'),
+                    'type': backup_type
+                })
+
+            return jsonify({'backups': backups})
+        except Exception as e:
+            app.logger.exception("List backups failed")
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/api/backup/download/<filename>')
+    def download_backup(filename):
+        """Download a specific backup file"""
+        try:
+            # Security: validate filename to prevent directory traversal
+            if '..' in filename or '/' in filename or '\\' in filename:
+                return jsonify({'error': 'Invalid filename'}), 400
+
+            backup_path = BACKUP_DIR / filename
+            if not backup_path.exists():
+                return jsonify({'error': 'Backup file not found'}), 404
+
+            return send_file(
+                backup_path,
+                as_attachment=True,
+                download_name=filename,
+                mimetype='application/zip'
+            )
+        except Exception as e:
+            app.logger.exception("Download backup failed")
+            return jsonify({'error': str(e)}), 500
+
+    @app.route('/api/backup/delete/<filename>', methods=['DELETE'])
+    def delete_backup(filename):
+        """Delete a specific backup file"""
+        try:
+            # Security: validate filename
+            if '..' in filename or '/' in filename or '\\' in filename:
+                return jsonify({'error': 'Invalid filename'}), 400
+
+            backup_path = BACKUP_DIR / filename
+            if not backup_path.exists():
+                return jsonify({'error': 'Backup file not found'}), 404
+
+            backup_path.unlink()
+            app.logger.info(f"Backup deleted: {filename}")
+
+            return jsonify({
+                'success': True,
+                'message': 'Backup deleted successfully'
+            })
+        except Exception as e:
+            app.logger.exception("Delete backup failed")
+            return jsonify({'error': str(e)}), 500
+
+    # Initialize APScheduler for auto backup
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(
+        func=scheduled_backup,
+        trigger=CronTrigger(hour=19, minute=0),  # Every day at 19:00
+        id='auto_backup_job',
+        name='Auto Database Backup',
+        replace_existing=True
+    )
+    scheduler.start()
+    app.logger.info("Auto backup scheduler started (daily at 19:00)")
+
+    # Shutdown scheduler when app stops
+    import atexit
+    atexit.register(lambda: scheduler.shutdown())
 
     return app
 

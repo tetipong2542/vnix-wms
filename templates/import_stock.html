@@ -6,7 +6,7 @@
   <div class="col-auto">
     <div class="page-title d-flex align-items-center">
       <div class="page-title-icon me-3">
-        📊
+        <i data-lucide="bar-chart-3"></i>
       </div>
       <div class="d-flex align-items-baseline flex-wrap">
         <div class="page-title-main me-3">นำเข้า: สต็อก</div>
@@ -24,12 +24,12 @@
     <ul class="nav nav-tabs card-header-tabs" id="importTab" role="tablist">
       <li class="nav-item">
         <button class="nav-link active fw-bold text-primary" id="file-tab" data-bs-toggle="tab" data-bs-target="#tab-file" type="button">
-          <i class="bi bi-file-earmark-excel me-2"></i>อัปโหลดไฟล์
+          <i data-lucide="file-spreadsheet" class="me-2"></i>อัปโหลดไฟล์
         </button>
       </li>
       <li class="nav-item">
         <button class="nav-link fw-bold text-success" id="gsheet-tab" data-bs-toggle="tab" data-bs-target="#tab-gsheet" type="button">
-          <i class="bi bi-google me-2"></i>Google Sheet
+          <i data-lucide="sheet" class="me-2"></i>Google Sheet
         </button>
       </li>
     </ul>
@@ -48,7 +48,7 @@
               <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
             </div>
             <div class="col-md-3">
-              <button class="btn btn-primary w-100"><i class="bi bi-cloud-upload me-1"></i> นำเข้าไฟล์</button>
+              <button class="btn btn-primary w-100"><i data-lucide="cloud-upload" class="me-1"></i> นำเข้าไฟล์</button>
             </div>
           </div>
         </form>
@@ -69,10 +69,10 @@
                        value="{{ saved_url }}" required>
                 
                 <button class="btn btn-outline-secondary" type="button" onclick="saveStockUrl('save')" title="บันทึกลิงก์นี้ถาวร">
-                  <i class="bi bi-save"></i> บันทึก
+                  <i data-lucide="save"></i> บันทึก
                 </button>
                 <button class="btn btn-outline-danger" type="button" onclick="saveStockUrl('delete')" title="ลบลิงก์ออก">
-                  <i class="bi bi-trash"></i>
+                  <i data-lucide="trash-2"></i>
                 </button>
               </div>
               <div class="form-text mt-1" id="url-msg"></div>
@@ -80,13 +80,13 @@
             
             <div class="col-md-3">
               <button type="submit" class="btn btn-success w-100 fw-bold">
-                <i class="bi bi-cloud-download-fill me-1"></i> ดึงข้อมูล
+                <i data-lucide="cloud-download" class="me-1"></i> ดึงข้อมูล
               </button>
             </div>
           </div>
 
           <div class="form-text mt-2 text-success">
-            <i class="bi bi-check-circle-fill"></i> ระบบจะค้นหา Tab ชื่อ <strong>"Import_sabuysoft_stock"</strong>
+            <i data-lucide="check-circle"></i> ระบบจะค้นหา Tab ชื่อ <strong>"Import_sabuysoft_stock"</strong>
           </div>
         </form>
       </div>
@@ -123,7 +123,10 @@ function saveStockUrl(action) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            msgDiv.innerHTML = `<span class="text-${action==='save'?'success':'danger'} fw-bold"><i class="bi bi-check-circle"></i> ${data.msg}</span>`;
+            msgDiv.innerHTML = `<span class="text-${action==='save'?'success':'danger'} fw-bold"><i data-lucide="check-circle"></i> ${data.msg}</span>`;
+            if (typeof lucide !== 'undefined') {
+              lucide.createIcons();
+            }
             if (action === 'delete') urlInput.value = "";
             setTimeout(() => { msgDiv.innerHTML = ""; }, 3000);
         } else {

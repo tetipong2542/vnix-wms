@@ -1,2 +1,6 @@
 
 .table thead tr.filters input{ width:100%; }
+.vnix-brand-logo svg {
+    width: 30px;
+    height: 30px;
+}

@@ -6,7 +6,7 @@
   <div class="col-auto">
     <div class="page-title d-flex align-items-center">
       <div class="page-title-icon me-3">
-        📑
+        <i data-lucide="package"></i>
       </div>
       <div class="d-flex align-items-baseline flex-wrap">
         <div class="page-title-main me-3">ใบงานคลัง (Warehouse)</div>
@@ -143,9 +143,9 @@
     </h3>
     <div class="d-print-none d-flex gap-2">
       {% if not official_print %}
-        <button id="printSelectedBtn" class="btn btn-danger" onclick="printSelected()">🔒 พิมพ์และล็อกงานที่เลือก</button>
-        <button id="printAllBtn" class="btn btn-warning" onclick="printAllOrders()">🔒 พิมพ์และล็อกงานทั้งหมด</button>
-        <button id="updateDispatchBtn" class="btn btn-primary" onclick="showDispatchModal()">📝 จ่ายงาน(รอบที่)</button>
+        <button id="printSelectedBtn" class="btn btn-danger" onclick="printSelected()"><i data-lucide="lock"></i> พิมพ์และล็อกงานที่เลือก</button>
+        <button id="printAllBtn" class="btn btn-warning" onclick="printAllOrders()"><i data-lucide="lock"></i> พิมพ์และล็อกงานทั้งหมด</button>
+        <button id="updateDispatchBtn" class="btn btn-primary" onclick="showDispatchModal()"><i data-lucide="edit"></i> จ่ายงาน(รอบที่)</button>
       {% endif %}
       {% if is_history_view %}
         <a class="btn btn-outline-secondary" href="{{ url_for('warehouse_printed_history', reset='today') }}">รีเฟรช </a>
@@ -158,7 +158,7 @@
   <!-- แถบแจ้งโหมด -->
   {% if is_history_view %}
     <div class="alert alert-primary d-print-none">
-      <strong>📋 โหมดดูงานที่พิมพ์แล้ว</strong> — แสดงเฉพาะออเดอร์ที่ถูกพิมพ์แล้ว (สามารถพิมพ์ซ้ำได้)
+      <strong><i data-lucide="clipboard-check"></i> โหมดดูงานที่พิมพ์แล้ว</strong> — แสดงเฉพาะออเดอร์ที่ถูกพิมพ์แล้ว (สามารถพิมพ์ซ้ำได้)
     </div>
   {% elif official_print and printed_meta %}
     <div class="alert alert-success d-print-none">
@@ -232,12 +232,12 @@
         <input type="date" name="accepted_from" class="form-control form-control-sm" value="{{ accepted_from or '' }}">
         <span class="small">ถึง</span>
         <input type="date" name="accepted_to" class="form-control form-control-sm" value="{{ accepted_to or '' }}">
-        <button type="button" class="btn btn-outline-secondary btn-sm text-nowrap px-3" onclick="setTodayWarehouse()">📅 วันนี้</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm text-nowrap px-3" onclick="setTodayWarehouse()"><i data-lucide="calendar"></i> วันนี้</button>
       </div>
     </div>
 
     <div class="col-md-auto d-flex gap-2">
-      <button type="submit" class="btn btn-primary btn-sm fw-bold px-3"><i class="bi bi-search"></i> กรอง</button>
+      <button type="submit" class="btn btn-primary btn-sm fw-bold px-3"><i data-lucide="search"></i> กรอง</button>
       
       {% if is_history_view %}
         <a class="btn btn-success btn-sm" href="{{ url_for('export_warehouse_history_excel', **request.args) }}">Export Excel ทั้งหมด</a>
@@ -251,21 +251,21 @@
   <div class="d-print-none mb-3">
     <form method="get" action="{{ url_for('warehouse_printed_history') if is_history_view else url_for('print_warehouse') }}" class="d-flex gap-2 align-items-center">
       <div class="input-group" style="max-width: 600px;">
-        <span class="input-group-text bg-white"><i class="bi bi-search" style="font-size: 18px;"></i></span>
-        <input type="text" name="q" class="form-control" placeholder="🔍 ค้นหาเลข Order (ค้นหาทั้งหมด ไม่จำกัดวันที่)" value="{{ q or '' }}" style="font-size: 15px;">
-        <button class="btn btn-primary" type="submit"><i class="bi bi-search"></i> ค้นหา</button>
+        <span class="input-group-text bg-white"><i data-lucide="search" style="font-size: 18px;"></i></span>
+        <input type="text" name="q" class="form-control" placeholder="ค้นหาเลข Order (ค้นหาทั้งหมด ไม่จำกัดวันที่)" value="{{ q or '' }}" style="font-size: 15px;">
+        <button class="btn btn-primary" type="submit"><i data-lucide="search"></i> ค้นหา</button>
       </div>
       
       {% if q %}
         <a href="{{ url_for('warehouse_printed_history', reset='today') if is_history_view else url_for('print_warehouse', reset='all') }}" class="btn btn-outline-secondary" title="ล้างคำค้นหา">
-          <i class="bi bi-x-lg"></i> ล้าง
+          <i data-lucide="x"></i> ล้าง
         </a>
       {% endif %}
     </form>
     
     {% if q %}
       <div class="alert alert-info mt-2 mb-0">
-        <i class="bi bi-info-circle"></i> กำลังค้นหา: <strong>{{ q }}</strong> {% if is_history_view %}(ค้นหาในประวัติการพิมพ์ทั้งหมด){% else %}(ค้นหาทั้งหมดไม่จำกัดวันที่){% endif %}
+        <i data-lucide="info"></i> กำลังค้นหา: <strong>{{ q }}</strong> {% if is_history_view %}(ค้นหาในประวัติการพิมพ์ทั้งหมด){% else %}(ค้นหาทั้งหมดไม่จำกัดวันที่){% endif %}
       </div>
     {% endif %}
   </div>
@@ -276,7 +276,7 @@
     <!-- กล่อง Input สำหรับยิงบาร์โค้ด -->
     <div class="input-group shadow-sm mb-2">
       <span class="input-group-text bg-primary text-white border-primary px-3">
-        <i class="bi bi-upc-scan" style="font-size: 20px;"></i>
+        <i data-lucide="scan-barcode" style="font-size: 20px;"></i>
       </span>
       <input type="text" id="globalScanInput" 
              class="form-control fw-bold text-primary" 
@@ -290,12 +290,12 @@
     <div id="globalScanStatusContainer">
       <div id="globalScanStatus" class="alert alert-secondary text-center shadow-sm py-2" role="alert" 
            style="min-height: 50px; display: flex; align-items: center; justify-content: center;">
-        <span class="h6 mb-0 text-muted"><i class="bi bi-circle-fill text-success me-2" style="font-size: 10px;"></i> พร้อมใช้งาน</span>
+        <span class="h6 mb-0 text-muted"><i data-lucide="circle" class="text-success me-2" style="font-size: 10px;"></i> พร้อมใช้งาน</span>
       </div>
     </div>
 
     <div class="text-center text-muted small mt-1" style="font-size: 0.8rem;">
-      <i class="bi bi-info-circle me-1"></i> ใช้เครื่องสแกนยิงที่กล่องด้านบน
+      <i data-lucide="info" class="me-1"></i> ใช้เครื่องสแกนยิงที่กล่องด้านบน
     </div>
   </div>
 
@@ -304,19 +304,19 @@
     <div class="col-md-6 d-flex gap-3">
       <div class="card shadow-sm border-primary flex-fill">
         <div class="card-body p-2 text-center">
-          <small class="text-muted fw-bold">📦 Order ทั้งหมด</small>
+          <small class="text-muted fw-bold"><i data-lucide="package"></i> Order ทั้งหมด</small>
           <h3 class="fw-bold text-primary mb-0" id="dash-total">{{ count_orders }}</h3>
         </div>
       </div>
       <div class="card shadow-sm border-success flex-fill">
         <div class="card-body p-2 text-center">
-          <small class="text-muted fw-bold">✅ Scan แล้ว</small>
+          <small class="text-muted fw-bold"><i data-lucide="check-circle-2"></i> Scan แล้ว</small>
           <h3 class="fw-bold text-success mb-0" id="dash-scanned">0</h3>
         </div>
       </div>
       <div class="card shadow-sm border-warning flex-fill">
         <div class="card-body p-2 text-center">
-          <small class="text-muted fw-bold">⏳ รอสแกน</small>
+          <small class="text-muted fw-bold"><i data-lucide="alert-triangle"></i> รอสแกน</small>
           <h3 class="fw-bold text-warning mb-0" id="dash-pending">0</h3>
         </div>
       </div>
@@ -901,7 +901,7 @@ function setTodayWarehouse() {
     protectionHandlers.pasteHandler = function(e) {
       if (!protectionsEnabled) return;
       e.preventDefault(); // ห้ามวาง!
-      showGlobalStatus('<span class="h3 fw-bold"><i class="bi bi-shield-fill-exclamation me-2"></i> ห้าม Copy วาง! ใช้เครื่องสแกนเท่านั้น</span>', 'error');
+      showGlobalStatus('<span class="h3 fw-bold"><i data-lucide="shield"></i> ห้าม Copy วาง! ใช้เครื่องสแกนเท่านั้น</span>', 'error');
       this.value = "";
       playBeep('error');
     };
@@ -910,7 +910,7 @@ function setTodayWarehouse() {
     protectionHandlers.dropHandler = function(e) {
       if (!protectionsEnabled) return;
       e.preventDefault(); // ห้ามลากข้อความมาวาง!
-      showGlobalStatus('<span class="h3 fw-bold"><i class="bi bi-shield-fill-exclamation me-2"></i> ห้ามลากวาง! ใช้เครื่องสแกนเท่านั้น</span>', 'error');
+      showGlobalStatus('<span class="h3 fw-bold"><i data-lucide="shield"></i> ห้ามลากวาง! ใช้เครื่องสแกนเท่านั้น</span>', 'error');
       playBeep('error');
     };
     globalInput.addEventListener('drop', protectionHandlers.dropHandler);
@@ -1009,7 +1009,7 @@ function setTodayWarehouse() {
     alert(`Protection disabled for ${minutes} minutes\n\nYou can now:\n- Type manually\n- Copy-Paste\n- Drag & Drop\n- No auto-focus`);
 
     showGlobalStatus(
-      `<span class="h5 fw-bold"><i class="bi bi-unlock-fill me-2"></i> Protection Disabled (${minutes} min)</span>`,
+      `<span class="h5 fw-bold"><i data-lucide="unlock"></i> Protection Disabled (${minutes} min)</span>`,
       'warning'
     );
 
@@ -1033,7 +1033,7 @@ function setTodayWarehouse() {
     alert('Protection re-enabled\n\nAll protection systems are now active');
 
     showGlobalStatus(
-      '<span class="h6 mb-0 text-muted"><i class="bi bi-circle-fill text-success me-2" style="font-size: 10px;"></i> Ready (Protection ON)</span>',
+      '<span class="h6 mb-0 text-muted"><i data-lucide="circle" class="text-success me-2" style="font-size: 10px;"></i> Ready (Protection ON)</span>',
       'normal'
     );
 
@@ -1081,7 +1081,7 @@ function setTodayWarehouse() {
     // 5. ตั้งเวลา 10 วินาทีเพื่อกลับสู่สถานะปกติ
     if (type !== 'normal' && type !== 'loading') {
       scanStatusTimer = setTimeout(() => {
-        showGlobalStatus('<span class="h6 mb-0 text-muted"><i class="bi bi-circle-fill text-success me-2" style="font-size: 10px;"></i> พร้อมใช้งาน</span>', 'normal');
+        showGlobalStatus('<span class="h6 mb-0 text-muted"><i data-lucide="circle" class="text-success me-2" style="font-size: 10px;"></i> พร้อมใช้งาน</span>', 'normal');
       }, 10000);
     }
   }
@@ -1103,7 +1103,7 @@ function setTodayWarehouse() {
     const cleanValue = extractOrderNumber(rawValue);
 
     if (!cleanValue) {
-      showGlobalStatus('<span class="h3 fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i> ไม่พบเลขออเดอร์</span>', 'warning');
+      showGlobalStatus('<span class="h3 fw-bold"><i data-lucide="alert-triangle"></i> ไม่พบเลขออเดอร์</span>', 'warning');
       playBeep('warning');
       return;
     }
@@ -1114,11 +1114,11 @@ function setTodayWarehouse() {
 
     if (targetInput) {
       if (targetInput.classList.contains('is-valid')) {
-        showGlobalStatus(`<span class="h2 fw-bold"><i class="bi bi-exclamation-circle-fill me-2"></i> ออเดอร์ ${cleanValue}<br><small>สแกนไปแล้ว</small></span>`, 'warning');
+        showGlobalStatus(`<span class="h2 fw-bold"><i data-lucide="alert-circle"></i> ออเดอร์ ${cleanValue}<br><small>สแกนไปแล้ว</small></span>`, 'warning');
         playBeep('warning');
       } else {
         markAsScanned(targetInput, true);
-        showGlobalStatus(`<span class="h2 fw-bold"><i class="bi bi-check-circle-fill me-2"></i> สแกนสำเร็จ<br><small>${cleanValue}</small></span>`, 'success');
+        showGlobalStatus(`<span class="h2 fw-bold"><i data-lucide="check-circle"></i> สแกนสำเร็จ<br><small>${cleanValue}</small></span>`, 'success');
         playBeep('success');
         targetInput.closest('tr').scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
@@ -1138,7 +1138,7 @@ function setTodayWarehouse() {
       }
     });
 
-    showGlobalStatus(`<span class="h2 fw-bold"><i class="bi bi-check-all me-2"></i> Scan All Completed<br><small>Scanned ${scannedCount} items</small></span>`, 'success');
+    showGlobalStatus(`<span class="h2 fw-bold"><i data-lucide="check-circle-2"></i> Scan All Completed<br><small>Scanned ${scannedCount} items</small></span>`, 'success');
     playBeep('success');
   }
 
@@ -1181,7 +1181,7 @@ function setTodayWarehouse() {
     }
 
     updateScanStats();
-    showGlobalStatus(`<span class="h2 fw-bold"><i class="bi bi-arrow-counterclockwise me-2"></i> Reset Completed<br><small>Cleared ${resetCount} items</small></span>`, 'info');
+    showGlobalStatus(`<span class="h2 fw-bold"><i data-lucide="refresh-cw"></i> Reset Completed<br><small>Cleared ${resetCount} items</small></span>`, 'info');
     playBeep('success');
   }
 
@@ -1212,20 +1212,20 @@ function setTodayWarehouse() {
         let thaiNames = statusList.map(s => reportMap[s] || s).join(' / ');
 
         // กำหนดสีและไอคอนตามสถานะ
-        let icon = '<i class="bi bi-check-circle-fill me-2"></i>';
+        let icon = '<i data-lucide="check-circle"></i>';
         let alertType = 'success';
 
         if (data.color === 'danger') { 
-          icon = '<i class="bi bi-x-circle-fill me-2"></i>'; 
+          icon = '<i data-lucide="x-circle"></i>'; 
           alertType = 'error'; 
         } else if (data.color === 'warning') { 
-          icon = '<i class="bi bi-exclamation-triangle-fill me-2"></i>'; 
+          icon = '<i data-lucide="alert-triangle"></i>'; 
           alertType = 'warning'; 
         } else if (data.color === 'info') { 
-          icon = '<i class="bi bi-info-circle-fill me-2"></i>'; 
+          icon = '<i data-lucide="info"></i>'; 
           alertType = 'info'; 
         } else if (data.color === 'dark') { 
-          icon = '<i class="bi bi-box-seam-fill me-2"></i>'; 
+          icon = '<i data-lucide="package"></i>'; 
           alertType = 'dark'; 
         }
 
@@ -1285,13 +1285,13 @@ function setTodayWarehouse() {
 
       } else {
         // ไม่เจอเลยจริงๆ ใน Database
-        showGlobalStatus(`<span class="h4 fw-bold"><i class="bi bi-x-circle-fill me-2"></i> ไม่พบข้อมูลในระบบ<br><small>${orderId}</small></span>`, 'error');
+        showGlobalStatus(`<span class="h4 fw-bold"><i data-lucide="x-circle"></i> ไม่พบข้อมูลในระบบ<br><small>${orderId}</small></span>`, 'error');
         playBeep('error');
       }
     })
     .catch(error => {
       console.error('Error:', error);
-      showGlobalStatus('<span class="h4 fw-bold"><i class="bi bi-wifi-off me-2"></i> การเชื่อมต่อขัดข้อง</span>', 'error');
+      showGlobalStatus('<span class="h4 fw-bold"><i data-lucide="wifi-off"></i> การเชื่อมต่อขัดข้อง</span>', 'error');
       playBeep('error');
     });
   }
@@ -1326,7 +1326,7 @@ function setTodayWarehouse() {
         
         // Show warning
         const statusSpan = this.nextElementSibling;
-        statusSpan.innerHTML = '<small class="text-warning">⚠️ กรแณาใช้เครื่องสแกน</small>';
+        statusSpan.innerHTML = '<small class="text-warning"><i data-lucide="alert-triangle"></i> กรแณาใช้เครื่องสแกน</small>';
         setTimeout(() => {
           statusSpan.innerHTML = '';
         }, 2000);
@@ -1422,8 +1422,9 @@ function validateScan(input) {
     input.classList.remove('is-valid');
     input.classList.add('is-invalid');
     input.style.borderColor = '#dc3545';
-    statusSpan.innerHTML = '<small class="text-danger"><strong>✗ ผิดพลาด!</strong></small>';
-    
+    statusSpan.innerHTML = '<small class="text-danger"><strong><i data-lucide="x-circle" style="width:14px;height:14px;"></i> ผิดพลาด!</strong></small>';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+
     // Play error sound
     playBeep('error');
     
@@ -1448,7 +1449,8 @@ function markAsScanned(input, syncToServer) {
   input.setAttribute('readonly', 'readonly');
   
   if (statusSpan) {
-    statusSpan.innerHTML = '<small class="text-success"><strong>✓ ถูกต้อง</strong></small>';
+    statusSpan.innerHTML = '<small class="text-success"><strong><i data-lucide="check-circle" style="width:14px;height:14px;"></i> ถูกต้อง</strong></small>';
+    if (typeof lucide !== 'undefined') lucide.createIcons();
   }
   
   // จัดการหน้าตาตอนพิมพ์ (ใส่ Class ให้สีเข้ม)

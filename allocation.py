@@ -8,7 +8,7 @@ from models import db, Shop, Product, Stock, Sales, OrderLine
 def compute_allocation(session, filters:dict):
     """
     คืน list ของ dict ครบทุกคอลัมน์ที่จอ Dashboard ต้องใช้
-    
+
     Logic การจัดสรร (แก้ไขตาม Requirement):
     1. เรียง Priority: Shopee > TikTok > Lazada > อื่นๆ, แล้วตามเวลาสั่ง (มาก่อนได้ก่อน)
     2. Order ที่ Packed / Cancelled / เปิดใบขายครบ -> ไม่นำ Qty มาคำนวณ (ข้ามการตัดสต็อก)
@@ -18,7 +18,12 @@ def compute_allocation(session, filters:dict):
        - ถ้าสต็อกหมด -> SHORTAGE
        - ถ้าสต็อกเหลือแต่ไม่พอจำนวนที่ขอ -> NOT_ENOUGH (ไม่ตัดสต็อก)
     """
-    
+
+    # Debug logging
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"🔧 compute_allocation called with filters: {filters}")
+
     # Query ข้อมูล Order ทั้งหมด
     q = session.query(OrderLine, Shop, Product, Stock, Sales)\
         .join(Shop, Shop.id==OrderLine.shop_id)\
@@ -63,31 +68,67 @@ def compute_allocation(session, filters:dict):
         pass
 
     rows = []
-    
+
     # เรียงลำดับเวลา เพื่อให้ FIFO (First-In-First-Out) ทำงานถูกต้อง
     all_data = q.order_by(OrderLine.order_time.asc()).all()
+
+    # Debug: count filters
+    filtered_by_date = 0
+    total_rows_checked = 0
 
     for ol, shop, prod, stock, sales in all_data:
         # --- ตรวจสอบเงื่อนไขการแสดงผล (Filter) ใน Python ---
         show_this_row = True
-        
+        total_rows_checked += 1
+
         # [แก้ไข] เตรียมตัวแปรเวลา Order ให้มี Timezone (ถ้ายังไม่มี) เพื่อให้เทียบกับ Filter ได้
         current_order_time = ol.order_time
         if current_order_time and current_order_time.tzinfo is None:
             # ถ้าเวลาจาก DB ไม่มีโซน ให้ใส่โซนไทยเข้าไป (TH_TZ)
             current_order_time = current_order_time.replace(tzinfo=TH_TZ)
-        
+
         # ถ้าไม่ใช่โหมดดูงานค้าง/ทั้งหมด (คือมีการระบุวันที่) ให้เช็ควันที่
+        was_shown_before_date_filter = show_this_row
         if not (filters.get("active_only") or filters.get("all_time")):
-            # กรอง Import Date
-            if filters.get("import_from") and (not ol.import_date or ol.import_date < filters["import_from"]): show_this_row = False
-            if filters.get("import_to") and (not ol.import_date or ol.import_date > filters["import_to"]): show_this_row = False
+            # กรอง Import Date (เทียบเป็น date object)
+            if filters.get("import_from"):
+                imp_from_val = filters["import_from"]
+                ol_imp_date = ol.import_date
+                # แปลง datetime เป็น date ถ้าจำเป็น
+                if hasattr(imp_from_val, 'date'):
+                    imp_from_val = imp_from_val.date()
+                if hasattr(ol_imp_date, 'date'):
+                    ol_imp_date = ol_imp_date.date()
+                if not ol_imp_date or ol_imp_date < imp_from_val:
+                    show_this_row = False
+
+            if filters.get("import_to"):
+                imp_to_val = filters["import_to"]
+                ol_imp_date = ol.import_date
+                # แปลง datetime เป็น date ถ้าจำเป็น
+                if hasattr(imp_to_val, 'date'):
+                    imp_to_val = imp_to_val.date()
+                if hasattr(ol_imp_date, 'date'):
+                    ol_imp_date = ol_imp_date.date()
+                if not ol_imp_date or ol_imp_date > imp_to_val:
+                    show_this_row = False
+
             # รองรับ key เก่า
-            if filters.get("import_date") and ol.import_date != filters["import_date"]: show_this_row = False
-            
+            if filters.get("import_date") and ol.import_date != filters["import_date"]:
+                show_this_row = False
+
             # [แก้ไข] กรอง Order Date (ใช้ current_order_time ที่แก้ Timezone แล้ว)
-            if filters.get("date_from") and (not current_order_time or current_order_time < filters["date_from"]): show_this_row = False
-            if filters.get("date_to") and (not current_order_time or current_order_time >= filters["date_to"]): show_this_row = False
+            if filters.get("date_from"):
+                if not current_order_time or current_order_time < filters["date_from"]:
+                    show_this_row = False
+
+            if filters.get("date_to"):
+                if not current_order_time or current_order_time >= filters["date_to"]:
+                    show_this_row = False
+
+        # Track filtering
+        if was_shown_before_date_filter and not show_this_row:
+            filtered_by_date += 1
 
         # --- กรองวันที่กดรับ (Accepted Date) แบบ Timezone-Safe ---
         if filters.get("accepted_from") or filters.get("accepted_to"):
@@ -296,5 +337,12 @@ def compute_allocation(session, filters:dict):
         "orders_not_in_sbs": len(set(r["order_id"] for r in final_rows if r.get("is_not_in_sbs"))),
         "orders_nosales": len(set(r["order_id"] for r in final_rows if not r.get("is_not_in_sbs") and r.get("sales_status") == "ยังไม่มีการเปิดใบขาย")),
     }
-    
+
+    # Debug logging
+    logger.info(f"📊 compute_allocation returning {len(final_rows)} rows")
+    logger.info(f"   Total rows checked: {total_rows_checked}, Filtered by date: {filtered_by_date}")
+    if filters.get("date_from") or filters.get("date_to"):
+        logger.info(f"   Date range filter: {filters.get('date_from')} to {filters.get('date_to')}")
+        logger.info(f"   Unique orders: {len(set(r['order_id'] for r in final_rows))}")
+
     return final_rows, kpis

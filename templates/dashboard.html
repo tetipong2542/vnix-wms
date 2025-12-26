@@ -216,52 +216,52 @@
 
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div class="d-flex align-items-center">
-        <div class="page-title-icon me-3" style="width:48px;height:48px;background:linear-gradient(135deg, #3742fa, #5352ed);color:white;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.8rem;box-shadow:0 4px 10px rgba(55,66,250,0.3);">📊</div>
+        <div class="page-title-icon me-3" style="width:48px;height:48px;background:linear-gradient(135deg, #3742fa, #5352ed);color:white;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.8rem;box-shadow:0 4px 10px rgba(55,66,250,0.3);"><i data-lucide="bar-chart-3"></i></div>
         <div>
             <h3 class="mb-0 fw-bold text-dark">Dashboard</h3>
             <div class="d-flex align-items-center gap-2 mt-1">
                 {% if all_time %}
-                    <span class="badge bg-info text-white rounded-pill px-3">📅 ข้อมูลทั้งหมด (All Time)</span>
+                    <span class="badge bg-info text-white rounded-pill px-3"><i data-lucide="calendar" class="lucide-sm me-1"></i> ข้อมูลทั้งหมด (All Time)</span>
                 {% elif mode == 'today' %}
-                    <span class="badge bg-success text-white rounded-pill px-3">📅 ข้อมูลเฉพาะวันนี้ (Today)</span>
+                    <span class="badge bg-success text-white rounded-pill px-3"><i data-lucide="calendar" class="lucide-sm me-1"></i> ข้อมูลเฉพาะวันนี้ (Today)</span>
                 {% elif use_default_view %}
-                    <span class="badge bg-primary text-white rounded-pill px-3">⚡ มุมมองปกติ (งานค้าง + งานจบวันนี้)</span>
+                    <span class="badge bg-primary text-white rounded-pill px-3"><i data-lucide="zap" class="lucide-sm me-1"></i> มุมมองปกติ (งานค้าง + งานจบวันนี้)</span>
                 {% else %}
-                    <span class="badge bg-secondary text-white rounded-pill px-3">🔍 มุมมองแบบกำหนดเอง (Filtered)</span>
+                    <span class="badge bg-secondary text-white rounded-pill px-3"><i data-lucide="search" class="lucide-sm me-1"></i> มุมมองแบบกำหนดเอง (Filtered)</span>
                 {% endif %}
 
                 {# แสดง Badge สถานะที่กรองอยู่ #}
                 {% if status_sel %}
                     {% if status_sel == 'ORDER_READY' %}
-                        <span class="badge bg-success text-white rounded-pill px-3"><i class="bi bi-check-circle me-1"></i> กำลังดู: กอง 1 (พร้อม/ยังไม่จ่ายงาน)</span>
+                        <span class="badge bg-success text-white rounded-pill px-3"><i data-lucide="check-circle" class="lucide-sm me-1"></i> กำลังดู: กอง 1 (พร้อม/ยังไม่จ่ายงาน)</span>
                     {% elif status_sel in ['ORDER_LOW_STOCK', 'ORDER_LOW'] %}
-                        <span class="badge bg-warning text-dark rounded-pill px-3"><i class="bi bi-exclamation-triangle me-1"></i> กำลังดู: กอง 2 (สินค้าน้อย)</span>
+                        <span class="badge bg-warning text-dark rounded-pill px-3"><i data-lucide="alert-triangle" class="lucide-sm me-1"></i> กำลังดู: กอง 2 (สินค้าน้อย)</span>
                     {% elif status_sel == 'ORDER_PROBLEM' %}
-                        <span class="badge bg-danger text-white rounded-pill px-3"><i class="bi bi-x-octagon me-1"></i> กำลังดู: กอง 3 (ของขาด)</span>
+                        <span class="badge bg-danger text-white rounded-pill px-3"><i data-lucide="octagon-x" class="lucide-sm me-1"></i> กำลังดู: กอง 3 (ของขาด)</span>
                     {% elif status_sel == 'BILL_EMPTY' %}
-                        <span class="badge rounded-pill px-3" style="background-color: #6f42c1; color: white;"><i class="bi bi-file-earmark-text me-1"></i> กำลังดู: บิลเปล่า</span>
+                        <span class="badge rounded-pill px-3" style="background-color: #6f42c1; color: white;"><i data-lucide="file-text" class="lucide-sm me-1"></i> กำลังดู: บิลเปล่า</span>
                     {% elif status_sel == 'ORDER_NO_SALES' %}
-                        <span class="badge bg-light text-dark border border-secondary rounded-pill px-3"><i class="bi bi-file-earmark-x me-1"></i> กำลังดู: ยังไม่ได้แพ็ค</span>
+                        <span class="badge bg-light text-dark border border-secondary rounded-pill px-3"><i data-lucide="file-x" class="lucide-sm me-1"></i> กำลังดู: ยังไม่ได้แพ็ค</span>
                     {% elif status_sel == 'ORDER_NOT_IN_SBS' %}
-                        <span class="badge bg-light text-dark border border-secondary rounded-pill px-3"><i class="bi bi-cloud-slash me-1"></i> กำลังดู: ยังไม่นำเข้า SBS</span>
+                        <span class="badge bg-light text-dark border border-secondary rounded-pill px-3"><i data-lucide="cloud-off" class="lucide-sm me-1"></i> กำลังดู: ยังไม่นำเข้า SBS</span>
                     {% elif status_sel in ['ORDER_NOT_SCANNED', 'ORDER_SCAN_BARCODE'] %}
-                        <span class="badge bg-info text-white rounded-pill px-3"><i class="bi bi-upc-scan me-1"></i> กำลังดู: รอ Scan Barcode</span>
+                        <span class="badge bg-info text-white rounded-pill px-3"><i data-lucide="scan-barcode" class="lucide-sm me-1"></i> กำลังดู: รอ Scan Barcode</span>
                     {% elif status_sel == 'PACKED' %}
-                        <span class="badge bg-dark text-white rounded-pill px-3"><i class="bi bi-box-seam me-1"></i> กำลังดู: แพ็คแล้ว</span>
+                        <span class="badge bg-dark text-white rounded-pill px-3"><i data-lucide="package" class="lucide-sm me-1"></i> กำลังดู: แพ็คแล้ว</span>
                     {% elif status_sel == 'ORDER_CANCELLED' %}
-                        <span class="badge bg-secondary text-white rounded-pill px-3"><i class="bi bi-x-circle me-1"></i> กำลังดู: ยกเลิก (ก่อนแพ็ค)</span>
+                        <span class="badge bg-secondary text-white rounded-pill px-3"><i data-lucide="x-circle" class="lucide-sm me-1"></i> กำลังดู: ยกเลิก (ก่อนแพ็ค)</span>
                     {% elif status_sel == 'ORDER_CANCELLED_PACKED' %}
-                        <span class="badge bg-danger text-white rounded-pill px-3"><i class="bi bi-x-circle me-1"></i> กำลังดู: ยกเลิก (หลังแพ็ค)</span>
+                        <span class="badge bg-danger text-white rounded-pill px-3"><i data-lucide="x-circle" class="lucide-sm me-1"></i> กำลังดู: ยกเลิก (หลังแพ็ค)</span>
                     {% elif status_sel == 'WH_RECEIVE_TOTAL' %}
-                        <span class="badge rounded-pill px-3" style="background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%); color: white;"><i class="bi bi-layers me-1"></i> กำลังดู: รวมคลังรับงาน</span>
+                        <span class="badge rounded-pill px-3" style="background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%); color: white;"><i data-lucide="layers" class="lucide-sm me-1"></i> กำลังดู: รวมคลังรับงาน</span>
                     {% elif status_sel == 'WH_RECEIVE_G1' %}
-                        <span class="badge rounded-pill px-3" style="background: linear-gradient(135deg, #00b894 0%, #00cec9 100%); color: white;"><i class="bi bi-clipboard-check me-1"></i> กำลังดู: คลังรับงาน กอง 1</span>
+                        <span class="badge rounded-pill px-3" style="background: linear-gradient(135deg, #00b894 0%, #00cec9 100%); color: white;"><i data-lucide="clipboard-check" class="lucide-sm me-1"></i> กำลังดู: คลังรับงาน กอง 1</span>
                     {% elif status_sel == 'WH_RECEIVE_G2' %}
-                        <span class="badge rounded-pill px-3" style="background: linear-gradient(135deg, #e17055 0%, #fab1a0 100%); color: white;"><i class="bi bi-exclamation-triangle me-1"></i> กำลังดู: คลังรับงาน กอง 2</span>
+                        <span class="badge rounded-pill px-3" style="background: linear-gradient(135deg, #e17055 0%, #fab1a0 100%); color: white;"><i data-lucide="alert-triangle" class="lucide-sm me-1"></i> กำลังดู: คลังรับงาน กอง 2</span>
                     {% elif status_sel == 'WH_RECEIVE_G3' %}
-                        <span class="badge rounded-pill px-3" style="background: linear-gradient(135deg, #e84393 0%, #fd79a8 100%); color: white;"><i class="bi bi-x-octagon me-1"></i> กำลังดู: คลังรับงาน กอง 3</span>
+                        <span class="badge rounded-pill px-3" style="background: linear-gradient(135deg, #e84393 0%, #fd79a8 100%); color: white;"><i data-lucide="octagon-x" class="lucide-sm me-1"></i> กำลังดู: คลังรับงาน กอง 3</span>
                     {% else %}
-                        <span class="badge bg-secondary text-white rounded-pill px-3"><i class="bi bi-filter me-1"></i> กำลังดู: {{ status_sel }}</span>
+                        <span class="badge bg-secondary text-white rounded-pill px-3"><i data-lucide="filter" class="lucide-sm me-1"></i> กำลังดู: {{ status_sel }}</span>
                     {% endif %}
                 {% endif %}
             </div>
@@ -270,18 +270,18 @@
     <div>
         {% if mode == 'today' %}
             <a href="{{ url_for('dashboard') }}" class="btn btn-light border shadow-sm fw-bold px-3 py-2" style="border-radius: 10px;">
-                <i class="bi bi-arrow-left text-secondary"></i> กลับไปดูงานค้าง
+                <i data-lucide="arrow-left" class="text-secondary"></i> กลับไปดูงานค้าง
             </a>
         {% else %}
             <a href="{{ url_for('dashboard', mode='today') }}" class="btn btn-primary shadow-sm fw-bold px-3 py-2" style="border-radius: 10px; background: linear-gradient(to right, #3742fa, #5352ed); border: none;">
-                <i class="bi bi-calendar-check me-2"></i> ดูเฉพาะงานวันนี้
+                <i data-lucide="calendar-check" class="me-2"></i> ดูเฉพาะงานวันนี้
             </a>
         {% endif %}
     </div>
 </div>
 
 <div class="section-label text-danger">
-    <i class="bi bi-fire me-2 fs-5"></i> 
+    <i data-lucide="flame" class="me-2 fs-5"></i> 
     <span>งานค้างที่ต้องจัดการ (Pending Tasks)</span> 
     <span class="ms-2 badge bg-light text-danger border border-danger rounded-pill">ด่วน</span>
 </div>
@@ -297,7 +297,7 @@
                     <span class="divider">|</span>
                     <span class="val-new">วันนี้ {{ kpis.orders_unique_new }}</span>
                 </div>
-                <i class="bi bi-inbox kpi-icon"></i>
+                <i data-lucide="inbox" class="kpi-icon"></i>
             </div>
         </div>
     </div>
@@ -312,7 +312,7 @@
                     <span class="divider">|</span>
                     <span class="val-new">วันนี้ {{ kpis.orders_ready_new }}</span>
                 </div>
-                <i class="bi bi-check-circle kpi-icon"></i>
+                <i data-lucide="check-circle" class="kpi-icon"></i>
             </div>
         </div>
     </div>
@@ -327,7 +327,7 @@
                     <span class="divider">|</span>
                     <span class="val-new">วันนี้ {{ kpis.orders_low_new }}</span>
                 </div>
-                <i class="bi bi-exclamation-triangle kpi-icon"></i>
+                <i data-lucide="alert-triangle" class="kpi-icon"></i>
             </div>
         </div>
     </div>
@@ -342,7 +342,7 @@
                     <span class="divider">|</span>
                     <span class="val-new">วันนี้ {{ kpis.orders_problem_new }}</span>
                 </div>
-                <i class="bi bi-x-octagon kpi-icon"></i>
+                <i data-lucide="octagon-x" class="kpi-icon"></i>
             </div>
         </div>
     </div>
@@ -359,7 +359,7 @@
                             <span class="divider">|</span>
                             <span class="val-new">วันนี้ {{ kpis.orders_nosales_new }}</span>
                         </div>
-                        <i class="bi bi-file-earmark-x kpi-icon text-dark opacity-25"></i>
+                        <i data-lucide="file-x" class="kpi-icon text-dark opacity-25"></i>
                     </div>
                 </div>
             </div>
@@ -373,7 +373,7 @@
                             <span class="divider">|</span>
                             <span class="val-new">วันนี้ {{ kpis.orders_not_in_sbs_new }}</span>
                         </div>
-                        <i class="bi bi-cloud-slash kpi-icon text-dark opacity-25"></i>
+                        <i data-lucide="cloud-off" class="kpi-icon text-dark opacity-25"></i>
                     </div>
                 </div>
             </div>
@@ -389,7 +389,7 @@
                             <span class="divider">|</span>
                             <span class="val-new">วันนี้ {{ kpis.orders_not_scanned_new }}</span>
                         </div>
-                        <i class="bi bi-upc-scan kpi-icon"></i>
+                        <i data-lucide="scan-barcode" class="kpi-icon"></i>
                     </div>
                 </div>
             </div>
@@ -398,7 +398,7 @@
 </div>
 
 <div class="section-label text-primary">
-    <i class="bi bi-flag-fill me-2 fs-5"></i> 
+    <i data-lucide="flag" class="me-2 fs-5"></i> 
     <span>งานจบวันนี้ (Completed Today)</span>
 </div>
 
@@ -408,8 +408,8 @@
             <div class="kpi-card-body">
                 <div class="kpi-title">จ่ายงานแล้ว</div>
                 <div class="kpi-value">{{ issued_count or 0 }}</div>
-                <div class="kpi-sub"><i class="bi bi-calendar-check me-1"></i> เฉพาะวันนี้</div>
-                <i class="bi bi-send kpi-icon"></i>
+                <div class="kpi-sub"><i data-lucide="calendar-check" class="lucide-sm me-1"></i> เฉพาะวันนี้</div>
+                <i data-lucide="send" class="kpi-icon"></i>
             </div>
         </a>
     </div>
@@ -419,8 +419,8 @@
             <div class="kpi-card-body">
                 <div class="kpi-title">แพ็คแล้ว</div>
                 <div class="kpi-value">{{ kpis.packed }}</div>
-                <div class="kpi-sub"><i class="bi bi-calendar-check me-1"></i> เฉพาะวันนี้</div>
-                <i class="bi bi-box-seam kpi-icon"></i>
+                <div class="kpi-sub"><i data-lucide="calendar-check" class="lucide-sm me-1"></i> เฉพาะวันนี้</div>
+                <i data-lucide="package" class="kpi-icon"></i>
             </div>
         </div>
     </div>
@@ -439,7 +439,7 @@
                     <small class="text-muted" style="font-size:0.7rem;">วันนี้</small>
                 </div>
                 <a href="{{ url_for('dashboard_deleted') }}" class="text-center text-decoration-none flex-grow-1 p-3 h-100 d-flex flex-column justify-content-center">
-                    <h6 class="text-muted mb-1 text-uppercase small fw-bold"><i class="bi bi-trash"></i> ถังขยะ(ลบOrder)</h6>
+                    <h6 class="text-muted mb-1 text-uppercase small fw-bold"><i data-lucide="trash-2"></i> ถังขยะ(ลบOrder)</h6>
                     <span class="fs-2 fw-bold text-secondary">{{ kpis.orders_deleted }}</span>
                     <small class="text-muted" style="font-size:0.7rem;">วันนี้</small>
                 </a>
@@ -449,12 +449,12 @@
 </div>
 
 <div class="section-label warehouse-section-label">
-    <i class="bi bi-box-seam-fill me-2 fs-5"></i>
+    <i data-lucide="package" class="me-2 fs-5"></i>
     <span>คลังรับงาน (รับแล้ว/ยังไม่แพ็ค)</span>
     <span class="ms-2 badge rounded-pill warehouse-badge">กำลังดำเนินการ</span>
     {% if change_filter %}
         <a href="{{ url_for('dashboard', platform=platform_sel, shop_id=shop_sel) }}" class="ms-3 btn btn-sm btn-outline-secondary rounded-pill px-3" style="border-width:1px;">
-            <i class="bi bi-x-circle"></i> ล้างตัวกรองสถานะเปลี่ยน
+            <i data-lucide="x-circle" class="lucide-sm"></i> ล้างตัวกรองสถานะเปลี่ยน
         </a>
     {% endif %}
 </div>
@@ -479,10 +479,10 @@
                             <span>สถานะเปลี่ยน {{ kpis.wh_change_total }}</span>
                         </a>
                     {% else %}
-                        <span class="wh-change-disabled"><i class="bi bi-arrow-left-right"></i> สถานะเปลี่ยน 0</span>
+                        <span class="wh-change-disabled"><i data-lucide="arrow-left-right" class="lucide-sm"></i> สถานะเปลี่ยน 0</span>
                     {% endif %}
                 </div>
-                <i class="bi bi-layers kpi-icon"></i>
+                <i data-lucide="layers" class="kpi-icon"></i>
             </div>
         </div>
     </div>
@@ -506,10 +506,10 @@
                             <span>สถานะเปลี่ยน {{ kpis.wh_change_g1 }}</span>
                         </a>
                     {% else %}
-                        <span class="wh-change-disabled"><i class="bi bi-arrow-left-right"></i> สถานะเปลี่ยน 0</span>
+                        <span class="wh-change-disabled"><i data-lucide="arrow-left-right" class="lucide-sm"></i> สถานะเปลี่ยน 0</span>
                     {% endif %}
                 </div>
-                <i class="bi bi-clipboard-check kpi-icon"></i>
+                <i data-lucide="clipboard-check" class="kpi-icon"></i>
             </div>
         </div>
     </div>
@@ -533,10 +533,10 @@
                             <span>สถานะเปลี่ยน {{ kpis.wh_change_g2 }}</span>
                         </a>
                     {% else %}
-                        <span class="wh-change-disabled"><i class="bi bi-arrow-left-right"></i> สถานะเปลี่ยน 0</span>
+                        <span class="wh-change-disabled"><i data-lucide="arrow-left-right" class="lucide-sm"></i> สถานะเปลี่ยน 0</span>
                     {% endif %}
                 </div>
-                <i class="bi bi-exclamation-triangle kpi-icon"></i>
+                <i data-lucide="alert-triangle" class="kpi-icon"></i>
             </div>
         </div>
     </div>
@@ -560,10 +560,10 @@
                             <span>สถานะเปลี่ยน {{ kpis.wh_change_g3 }}</span>
                         </a>
                     {% else %}
-                        <span class="wh-change-disabled"><i class="bi bi-arrow-left-right"></i> สถานะเปลี่ยน 0</span>
+                        <span class="wh-change-disabled"><i data-lucide="arrow-left-right" class="lucide-sm"></i> สถานะเปลี่ยน 0</span>
                     {% endif %}
                 </div>
-                <i class="bi bi-x-octagon kpi-icon"></i>
+                <i data-lucide="octagon-x" class="kpi-icon"></i>
             </div>
         </div>
     </div>
@@ -578,50 +578,50 @@
                     <span class="divider">|</span>
                     <span class="val-new">วันนี้ {{ kpis.orders_bill_empty_new }}</span>
                 </div>
-                <i class="bi bi-file-earmark-text kpi-icon text-white opacity-25"></i>
+                <i data-lucide="file-text" class="kpi-icon text-white opacity-25"></i>
             </div>
         </div>
     </div>
 </div>
 
 <div class="action-bar d-flex flex-wrap gap-2 align-items-center">
-    <span class="text-muted small fw-bold text-uppercase me-2 d-none d-md-block"><i class="bi bi-printer-fill me-1"></i>Scan Barcode/พิมพ์งาน/จ่ายงาน:</span>
+    <span class="text-muted small fw-bold text-uppercase me-2 d-none d-md-block"><i data-lucide="printer" class="lucide-sm me-1"></i>Scan Barcode/พิมพ์งาน/จ่ายงาน:</span>
     
     <div class="btn-group">
         <a href="{{ url_for('print_warehouse', platform=platform_sel, shop_id=shop_sel) }}" class="btn btn-report btn-outline-primary fw-bold">
-            <i class="bi bi-file-earmark-text"></i> กอง 1: ใบงานคลัง
+            <i data-lucide="file-text"></i> กอง 1: ใบงานคลัง
         </a>
         <button type="button" class="btn btn-outline-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown"></button>
         <ul class="dropdown-menu shadow">
-            <li><a class="dropdown-item" href="{{ url_for('warehouse_printed_history') }}"><i class="bi bi-clock-history me-2"></i> ดูประวัติการพิมพ์</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('warehouse_printed_history') }}"><i data-lucide="history" class="lucide-sm me-2"></i> ดูประวัติการพิมพ์</a></li>
         </ul>
     </div>
 
     <div class="btn-group">
         <a href="{{ url_for('picking_list', platform=platform_sel, shop_id=shop_sel) }}" class="btn btn-report btn-outline-success fw-bold">
-            <i class="bi bi-basket"></i> Picking List
+            <i data-lucide="shopping-basket"></i> Picking List
         </a>
         <button type="button" class="btn btn-outline-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown"></button>
         <ul class="dropdown-menu shadow">
-            <li><a class="dropdown-item" href="{{ url_for('picking_printed_history') }}"><i class="bi bi-clock-history me-2"></i> ดูประวัติการพิมพ์</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('picking_printed_history') }}"><i data-lucide="history" class="lucide-sm me-2"></i> ดูประวัติการพิมพ์</a></li>
         </ul>
     </div>
     
     <div class="vr bg-secondary opacity-25 mx-1 d-none d-md-block"></div>
 
     <a href="{{ url_for('report_lowstock', platform=platform_sel, shop_id=shop_sel) }}" class="btn btn-report btn-outline-warning text-dark fw-bold">
-        <i class="bi bi-exclamation-circle"></i> กอง 2: สินค้าน้อย
+        <i data-lucide="alert-circle"></i> กอง 2: สินค้าน้อย
     </a>
     <a href="{{ url_for('report_nostock', platform=platform_sel, shop_id=shop_sel) }}" class="btn btn-report btn-outline-danger fw-bold">
-        <i class="bi bi-x-circle"></i> กอง 3: ไม่มีสินค้า
+        <i data-lucide="x-circle"></i> กอง 3: ไม่มีสินค้า
     </a>
     <a href="{{ url_for('report_notenough', platform=platform_sel, shop_id=shop_sel) }}" class="btn btn-report btn-outline-danger fw-bold">
-        <i class="bi bi-dash-circle"></i> กอง 3: ไม่พอส่ง
+        <i data-lucide="minus-circle"></i> กอง 3: ไม่พอส่ง
     </a>
 
     <div class="ms-auto">
         <a href="{{ url_for('export_excel', platform=platform_sel, shop_id=shop_sel, status=status_sel, q=q, import_from=import_from_sel, import_to=import_to_sel, date_from=date_from_sel, date_to=date_to_sel, all_time=all_time, mode=mode) }}" class="btn btn-success text-white shadow-sm fw-bold" style="border-radius: 10px;">
-            <i class="bi bi-file-earmark-excel-fill"></i> Excel
+            <i data-lucide="file-spreadsheet"></i> Excel
         </a>
     </div>
 </div>
@@ -662,15 +662,15 @@
         </div>
         
         <div class="col-md-4">
-            <label class="form-label text-muted small fw-bold mb-1">🔍 ค้นหา (Global Search)</label>
+            <label class="form-label text-muted small fw-bold mb-1"><i data-lucide="search" class="lucide-sm"></i> ค้นหา (Global Search)</label>
             <div class="input-group input-group-sm">
                 <input type="text" class="form-control bg-light border-0" name="q" value="{{ q or '' }}" placeholder="เลข Order, SKU, สินค้า...">
-                <button class="btn btn-primary px-4" type="submit" id="btn-filter"><i class="bi bi-search"></i></button>
-                <a href="{{ url_for('dashboard') }}" class="btn btn-light border" title="ล้างค่า"><i class="bi bi-arrow-counterclockwise"></i></a>
+                <button class="btn btn-primary px-4" type="submit" id="btn-filter"><i data-lucide="search"></i></button>
+                <a href="{{ url_for('dashboard') }}" class="btn btn-light border" title="ล้างค่า"><i data-lucide="refresh-ccw" class="lucide-sm"></i></a>
             </div>
         </div>
 
-        <input type="hidden" name="status" value="{{ status_sel }}">
+        <input type="hidden" name="status" value="{{ status_sel if status_sel else '' }}">
         
         <div class="col-md-2 mt-2">
             <label class="form-label text-muted small fw-bold mb-1">สั่งซื้อ (เริ่ม)</label>
@@ -684,28 +684,67 @@
         <div class="col-md-8 mt-2 d-flex align-items-center justify-content-end gap-2">
              {% if not all_time %}
                 <a href="{{ url_for('dashboard', all_time='1') }}" class="btn btn-sm btn-outline-info rounded-pill px-3">
-                    <i class="bi bi-calendar3"></i> ดูยอดสะสมทั้งหมด (All Time)
+                    <i data-lucide="calendar" class="lucide-sm"></i> ดูยอดสะสมทั้งหมด (All Time)
                 </a>
             {% else %}
                 <a href="{{ url_for('dashboard') }}" class="btn btn-sm btn-info text-white rounded-pill px-3">
-                    <i class="bi bi-check-circle"></i> กำลังดู All Time
+                    <i data-lucide="check-circle" class="lucide-sm"></i> กำลังดู All Time
                 </a>
             {% endif %}
         </div>
     </form>
 </div>
 
+{% if date_from_sel or date_to_sel or import_from_sel or import_to_sel or platform_sel or shop_sel or q %}
+<div class="alert alert-info d-flex align-items-center justify-content-between shadow-sm py-2 mb-3 rounded-pill px-4 border-0" style="background-color: #d1ecf1; color: #0c5460;">
+    <div class="d-flex align-items-center flex-wrap gap-2">
+        <i data-lucide="filter" class="me-2"></i>
+        <span class="fw-bold">กำลังใช้ฟิลเตอร์:</span>
+        {% if date_from_sel or date_to_sel %}
+            <span class="badge bg-info text-white rounded-pill">
+                <i data-lucide="calendar" class="lucide-sm"></i> สั่งซื้อ:
+                {{ date_from_sel if date_from_sel else '...' }} - {{ date_to_sel if date_to_sel else '...' }}
+            </span>
+        {% endif %}
+        {% if import_from_sel or import_to_sel %}
+            <span class="badge bg-info text-white rounded-pill">
+                <i data-lucide="download" class="lucide-sm"></i> นำเข้า:
+                {{ import_from_sel if import_from_sel else '...' }} - {{ import_to_sel if import_to_sel else '...' }}
+            </span>
+        {% endif %}
+        {% if platform_sel %}
+            <span class="badge bg-primary text-white rounded-pill">
+                <i data-lucide="shopping-bag" class="lucide-sm"></i> {{ platform_sel }}
+            </span>
+        {% endif %}
+        {% if shop_sel %}
+            <span class="badge bg-primary text-white rounded-pill">
+                <i data-lucide="store" class="lucide-sm"></i> ร้าน #{{ shop_sel }}
+            </span>
+        {% endif %}
+        {% if q %}
+            <span class="badge bg-warning text-dark rounded-pill">
+                <i data-lucide="search" class="lucide-sm"></i> "{{ q }}"
+            </span>
+        {% endif %}
+    </div>
+    <a href="{{ url_for('dashboard') }}" class="btn btn-sm btn-outline-secondary rounded-pill px-3" title="ล้างฟิลเตอร์ทั้งหมด">
+        <i data-lucide="x-circle" class="lucide-sm"></i> ล้างทั้งหมด
+    </a>
+</div>
+{% endif %}
+
 <div id="bulk-bar" class="alert alert-primary d-none d-flex justify-content-between align-items-center shadow-sm py-2 mb-3 rounded-pill px-4 border-0" style="background-color: #e7f1ff; color: #0d6efd;">
     <div class="d-flex align-items-center">
-        <i class="bi bi-check-square-fill me-2 fs-5"></i>
+        <i data-lucide="check-square" class="me-2 fs-5"></i>
         <span class="fw-bold">เลือก <span id="selected-count" class="badge bg-primary text-white fs-6 mx-1 rounded-pill">0</span> รายการ</span>
     </div>
     <div class="d-flex gap-2">
-        <button class="btn btn-sm btn-primary fw-bold rounded-pill px-3" id="btn-bulk-accept-confirm"><i class="bi bi-check-lg"></i> กดรับงาน</button>
-        <button class="btn btn-sm btn-warning text-dark fw-bold rounded-pill px-3" id="btn-bulk-cancel"><i class="bi bi-arrow-counterclockwise"></i> ยกเลิกรับ</button>
+        <button class="btn btn-sm btn-primary fw-bold rounded-pill px-3" id="btn-bulk-accept-confirm"><i data-lucide="check" class="lucide-sm"></i> กดรับงาน</button>
+        <button class="btn btn-sm btn-warning text-dark fw-bold rounded-pill px-3" id="btn-bulk-cancel"><i data-lucide="refresh-ccw" class="lucide-sm"></i> ยกเลิกรับ</button>
         <div class="vr bg-secondary opacity-25 mx-1"></div>
-        <button class="btn btn-sm btn-danger fw-bold rounded-pill px-3" onclick="confirmBulkDeleteOrders()"><i class="bi bi-trash"></i> ลบ</button>
-        <button class="btn btn-sm btn-light text-muted rounded-circle" id="btn-bulk-clear"><i class="bi bi-x-lg"></i></button>
+        <button class="btn btn-sm btn-danger fw-bold rounded-pill px-3" onclick="confirmBulkDeleteOrders()"><i data-lucide="trash-2" class="lucide-sm"></i> ลบ</button>
+        <button class="btn btn-sm btn-light text-muted rounded-circle" id="btn-bulk-clear"><i data-lucide="x" class="lucide-sm"></i></button>
     </div>
 </div>
 <form id="bulk-delete-form" method="post" action="{{ url_for('bulk_delete_orders') }}"></form>
@@ -831,7 +870,7 @@
                             <button class="btn btn-sm btn-secondary disabled opacity-50" style="font-size:0.7rem;">จ่ายแล้ว</button>
                         {% elif r.accepted %}
                             <form method="post" action="{{ url_for('cancel_accept', order_line_id=r.id) }}" class="d-inline">
-                                <button class="btn btn-sm btn-warning text-dark py-0 px-2" title="ถอยกลับ" style="font-size:0.75rem; border-radius:6px;"><i class="bi bi-arrow-counterclockwise"></i> ถอย</button>
+                                <button class="btn btn-sm btn-warning text-dark py-0 px-2" title="ถอยกลับ" style="font-size:0.75rem; border-radius:6px;"><i data-lucide="refresh-ccw" class="lucide-sm"></i> ถอย</button>
                             </form>
                         {# [แก้ไข] เช็คเพิ่มว่า Order ID นี้ต้องอยู่ในรายการที่ "พร้อมทั้งใบ" (ready_oids) เท่านั้น + รองรับ BILL_EMPTY #}
                         {% elif (r.allocation_status == "READY_ACCEPT" or r.allocation_status == "BILL_EMPTY") and r.order_id in ready_oids %}
@@ -840,17 +879,17 @@
                                 <input type="hidden" name="sku" value="{{ r.sku }}">
                                 <input type="hidden" name="platform" value="{{ platform_sel or '' }}">
                                 <input type="hidden" name="shop_id" value="{{ shop_sel or '' }}">
-                                <button class="btn btn-sm btn-success py-0 px-2 fw-bold" title="กดรับงาน" style="font-size:0.75rem; border-radius:6px;"><i class="bi bi-check"></i> รับ</button>
+                                <button class="btn btn-sm btn-success py-0 px-2 fw-bold" title="กดรับงาน" style="font-size:0.75rem; border-radius:6px;"><i data-lucide="check" class="lucide-sm"></i> รับ</button>
                             </form>
                         {# [เพิ่ม] ถ้าสถานะ Ready/BILL_EMPTY แต่ของตัวอื่นในออเดอร์ไม่พร้อม ให้โชว์ปุ่มเทา (กดไม่ได้) #}
                         {% elif (r.allocation_status == "READY_ACCEPT" or r.allocation_status == "BILL_EMPTY") %}
-                             <button class="btn btn-sm btn-light text-muted border py-0 px-2" disabled style="font-size:0.75rem; border-radius:6px;" title="รอสินค้าอื่นในออเดอร์ให้ครบ"><i class="bi bi-hourglass"></i> รอครบ</button>
+                             <button class="btn btn-sm btn-light text-muted border py-0 px-2" disabled style="font-size:0.75rem; border-radius:6px;" title="รอสินค้าอื่นในออเดอร์ให้ครบ"><i data-lucide="hourglass" class="lucide-sm"></i> รอครบ</button>
                         {% else %}
-                             <button class="btn btn-sm btn-light text-muted border py-0 px-2" disabled style="font-size:0.75rem; border-radius:6px;"><i class="bi bi-x"></i> รับ</button>
+                             <button class="btn btn-sm btn-light text-muted border py-0 px-2" disabled style="font-size:0.75rem; border-radius:6px;"><i data-lucide="x" class="lucide-sm"></i> รับ</button>
                         {% endif %}
                         
                         {% if r.allocation_status != 'PACKED' %}
-                            <button class="btn btn-sm btn-outline-danger py-0 px-2 ms-1" onclick="openCancelModal('{{ r.order_id }}')" title="ยกเลิก" style="font-size:0.75rem; border-radius:6px;"><i class="bi bi-trash"></i></button>
+                            <button class="btn btn-sm btn-outline-danger py-0 px-2 ms-1" onclick="openCancelModal('{{ r.order_id }}')" title="ยกเลิก" style="font-size:0.75rem; border-radius:6px;"><i data-lucide="trash-2" class="lucide-sm"></i></button>
                         {% endif %}
                     {% else %}
                         <span class="text-muted small">-</span>
@@ -864,7 +903,7 @@
                 <td class="small text-muted">{{ r.accepted_by or '-' }}</td>
                 <td class="small text-muted">
                     {% if r.is_cancelled %}
-                        <span class="text-danger small"><i class="bi bi-info-circle"></i> {{ r.cancel_reason }}</span>
+                        <span class="text-danger small"><i data-lucide="info" class="lucide-sm"></i> {{ r.cancel_reason }}</span>
                     {% else %}
                         {{ r.note or '-' }}
                     {% endif %}
@@ -891,10 +930,10 @@
                 </td>
                 <td colspan="8" class="px-3 py-2">
                     <span class="text-muted small">
-                        <i class="bi bi-box-seam me-1"></i>
+                        <i data-lucide="package" class="lucide-sm me-1"></i>
                         จำนวน Order: <span class="fw-bold text-dark" id="summary-order-count">-</span>
                         <span class="mx-2">|</span>
-                        <i class="bi bi-list-ul me-1"></i>
+                        <i data-lucide="list" class="lucide-sm me-1"></i>
                         จำนวนรายการ: <span class="fw-bold text-dark" id="summary-row-count">-</span>
                     </span>
                 </td>
@@ -907,13 +946,13 @@
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content border-0 shadow-lg" style="border-radius: 15px;">
       <div class="modal-header bg-danger text-white" style="border-radius: 15px 15px 0 0;">
-        <h5 class="modal-title"><i class="bi bi-exclamation-triangle-fill me-2"></i> ยืนยันการยกเลิก Order</h5>
+        <h5 class="modal-title"><i data-lucide="alert-triangle" class="me-2"></i> ยืนยันการยกเลิก Order</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <form method="post" action="{{ url_for('cancel_order_permanent') }}" id="cancelOrderForm">
         <div class="modal-body p-4">
           <div class="alert alert-warning border-0 bg-light d-flex align-items-center">
-             <i class="bi bi-info-circle text-warning fs-4 me-3"></i>
+             <i data-lucide="info" class="text-warning fs-4 me-3"></i>
              <div>คุณกำลังจะยกเลิก Order: <strong id="modalOrderIdDisplay" class="text-primary fs-5"></strong></div>
           </div>
           <input type="hidden" name="order_id" id="inputOrderIdForCancel">
@@ -940,8 +979,8 @@
 </div>
 
 <div class="scroll-nav-container" style="position:fixed;bottom:30px;right:30px;z-index:9999;display:flex;flex-direction:column;gap:10px;">
-  <button type="button" class="btn btn-secondary rounded-circle shadow border-0" id="btn-scroll-to-bottom" style="width:45px;height:45px;display:none; transition:transform 0.2s;"><i class="bi bi-arrow-down fs-5"></i></button>
-  <button type="button" class="btn btn-primary rounded-circle shadow border-0" id="btn-back-to-top" style="width:45px;height:45px;display:none; background: linear-gradient(135deg, #0d6efd, #0a58ca); transition:transform 0.2s;"><i class="bi bi-arrow-up fs-5"></i></button>
+  <button type="button" class="btn btn-secondary rounded-circle shadow border-0" id="btn-scroll-to-bottom" style="width:45px;height:45px;display:none; transition:transform 0.2s;"><i data-lucide="arrow-down" class="fs-5"></i></button>
+  <button type="button" class="btn btn-primary rounded-circle shadow border-0" id="btn-back-to-top" style="width:45px;height:45px;display:none; background: linear-gradient(135deg, #0d6efd, #0a58ca); transition:transform 0.2s;"><i data-lucide="arrow-up" class="fs-5"></i></button>
 </div>
 
 <script>
@@ -1112,7 +1151,7 @@ document.addEventListener('DOMContentLoaded', function() {
             let validIds = [];
             checked.forEach(chk => { if(chk.getAttribute('data-order-ready') === 'true') validIds.push(chk.value); });
             
-            if(validIds.length === 0) { alert('❌ ไม่มีรายการที่พร้อมรับ (ต้องเขียวทั้งใบ)'); return; }
+            if(validIds.length === 0) { alert('ไม่มีรายการที่พร้อมรับ (ต้องเขียวทั้งใบ)'); return; }
             if(confirm(`ยืนยันรับ ${validIds.length} รายการที่พร้อม?`)) {
                 const f = document.createElement('form'); f.method='POST'; f.action="{{ url_for('bulk_accept') }}";
                 validIds.forEach(v => { const i=document.createElement('input'); i.type='hidden'; i.name='order_line_ids[]'; i.value=v; f.appendChild(i); });
@@ -1161,7 +1200,7 @@ function openCancelModal(oid) {
 function confirmBulkDeleteOrders() {
     const checked = document.querySelectorAll('.js-row-check:checked');
     if (checked.length === 0) { alert('กรุณาเลือกรายการ'); return; }
-    if (confirm(`⚠️ ยืนยันลบ ${checked.length} รายการ? (กู้คืนได้)`)) {
+    if (confirm(`ยืนยันลบ ${checked.length} รายการ? (กู้คืนได้)`)) {
         const f = document.getElementById('bulk-delete-form'); f.innerHTML='';
         checked.forEach(c => { const i=document.createElement('input'); i.type='hidden'; i.name='order_line_ids[]'; i.value=c.value; f.appendChild(i); });
         f.submit();

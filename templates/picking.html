@@ -6,7 +6,7 @@
   <div class="col-auto">
     <div class="page-title d-flex align-items-center">
       <div class="page-title-icon me-3">
-        📋
+        <i data-lucide="clipboard-list"></i>
       </div>
       <div class="d-flex align-items-baseline flex-wrap">
         <div class="page-title-main me-3">ใบงานหยิบสินค้า (Picking)</div>
@@ -75,9 +75,9 @@
   </h3>
   <div class="d-print-none d-flex gap-2">
     {% if not official_print %}
-      <button id="printSelectedBtn" type="button" class="btn btn-danger" onclick="printSelected()">🔒 พิมพ์และล็อกงานที่เลือก</button>
-      <button id="printAllBtn" type="button" class="btn btn-warning" onclick="printAllPicking()">🔒 พิมพ์และล็อกงานทั้งหมด</button>
-      <button id="updateDispatchBtn" type="button" class="btn btn-primary" onclick="showDispatchModal()">📝 จ่ายงาน(รอบที่)</button>
+      <button id="printSelectedBtn" type="button" class="btn btn-danger" onclick="printSelected()"><i data-lucide="lock"></i> พิมพ์และล็อกงานที่เลือก</button>
+      <button id="printAllBtn" type="button" class="btn btn-warning" onclick="printAllPicking()"><i data-lucide="lock"></i> พิมพ์และล็อกงานทั้งหมด</button>
+      <button id="updateDispatchBtn" type="button" class="btn btn-primary" onclick="showDispatchModal()"><i data-lucide="edit"></i> จ่ายงาน(รอบที่)</button>
     {% endif %}
     {% if is_history_view %}
       <a class="btn btn-outline-secondary"
@@ -111,7 +111,7 @@
 
 {% if is_history_view %}
   <div class="alert alert-primary d-print-none">
-    <strong>📋 โหมดดูงานที่พิมพ์แล้ว</strong> — แสดงเฉพาะออเดอร์ที่ถูกพิมพ์แล้ว (สามารถพิมพ์ซ้ำได้)
+    <strong><i data-lucide="clipboard-check"></i> โหมดดูงานที่พิมพ์แล้ว</strong> — แสดงเฉพาะออเดอร์ที่ถูกพิมพ์แล้ว (สามารถพิมพ์ซ้ำได้)
   </div>
 {% elif official_print and printed_meta %}
   <div class="alert alert-success d-print-none">
@@ -126,7 +126,7 @@
     นี่คือโหมด <strong>Preview</strong> — จะไม่ล็อกงานจนกว่าจะกด "พิมพ์และล็อกงาน"
     {% if warehouse_print_info %}
     <br>
-    <strong>🔗 เชื่อมโยงกับใบงานคลัง:</strong> 
+    <strong><i data-lucide="link"></i> เชื่อมโยงกับใบงานคลัง:</strong> 
     พิมพ์เมื่อ {{ warehouse_print_info.printed_at|thai_be }} 
     โดย {{ warehouse_print_info.printed_by }}
     (ครั้งที่ {{ warehouse_print_info.print_count }})
@@ -207,7 +207,7 @@
     </div>
   </div>
   <div class="col-md-auto d-grid">
-    <button type="submit" class="btn btn-primary btn-sm fw-bold"><i class="bi bi-search"></i> กรอง</button>
+    <button type="submit" class="btn btn-primary btn-sm fw-bold"><i data-lucide="search"></i> กรอง</button>
   </div>
 </form>
 
@@ -220,7 +220,7 @@
   </div>
   <div class="d-print-none">
     <button class="btn btn-sm btn-outline-secondary" onclick="clearAllFilters()">
-      <i class="bi bi-x-circle"></i> ล้างตัวกรองทั้งหมด
+      <i data-lucide="x-circle"></i> ล้างตัวกรองทั้งหมด
     </button>
   </div>
 </div>
@@ -259,7 +259,7 @@
     </thead>
     <tbody>
       {% for it in items %}
-        <tr class="{% if it.shortage>0 %}table-warning{% endif %}" data-sku="{{ it.sku }}" data-platform="{{ platform_sel or '-' }}" data-shop="{{ shop_sel_name or '-' }}" data-brand="{{ it.brand }}" data-model="{{ it.model }}" data-logistic="{{ logistic_sel or '-' }}" data-dispatch-round="{% if it.dispatch_round is not none %}{{ it.dispatch_round }}{% endif %}" data-printed-count="{{ print_count_overall|default(0, true) }}" data-printed-at="{% if print_timestamp_overall %}{{ print_timestamp_overall.isoformat() }}{% endif %}">
+        <tr class="{% if it.shortage>0 %}table-warning{% endif %}" data-sku="{{ it.sku }}" data-platform="{{ platform_sel or '-' }}" data-shop="{{ shop_sel_name or '-' }}" data-brand="{{ it.brand }}" data-model="{{ it.model }}" data-logistic="{{ logistic_sel or '-' }}" data-dispatch-round="{% if it.dispatch_round is not none %}{{ it.dispatch_round }}{% endif %}" data-printed-count="{{ it.print_count|default(0, true) }}" data-printed-at="{% if it.printed_at %}{{ it.printed_at.isoformat() }}{% endif %}">
           
           <td class="d-print-none">
             <input type="checkbox" class="sku-checkbox" value="{{ it.sku }}" onchange="updateSelectedCount()">
@@ -290,18 +290,18 @@
           </td>
 
           <td class="text-center">
-            {% if print_count_overall > 0 %}
-              <span class="badge bg-success">{{ print_count_overall }}</span>
+            {% if it.print_count > 0 %}
+              <span class="badge bg-success">{{ it.print_count }}</span>
             {% else %}
               <span class="text-muted">0</span>
             {% endif %}
           </td>
-          
+
           <td class="text-center">
-            {% if print_timestamp_overall %}
-              {{ print_timestamp_overall|thai_be }}
-              {% if print_user_overall %}
-                <br><small class="text-muted">(โดย: {{ print_user_overall }})</small>
+            {% if it.printed_at %}
+              {{ it.printed_at|thai_be }}
+              {% if it.printed_by %}
+                <br><small class="text-muted">(โดย: {{ it.printed_by }})</small>
               {% endif %}
             {% else %}
               <span class="text-muted">-</span>
@@ -328,7 +328,7 @@
   <div class="modal-dialog modal-sm modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header bg-primary text-white">
-        <h5 class="modal-title"><i class="bi bi-truck"></i> จ่ายงาน / ระบุรอบ</h5>
+        <h5 class="modal-title"><i data-lucide="truck"></i> จ่ายงาน / ระบุรอบ</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -348,7 +348,7 @@
           <input type="hidden" name="logistic" value="{{ logistic_sel or '' }}">
 
           <div class="d-grid">
-            <button type="submit" class="btn btn-primary btn-lg">✅ ยืนยันจ่ายงาน</button>
+            <button type="submit" class="btn btn-primary btn-lg"><i data-lucide="check-circle-2"></i> ยืนยันจ่ายงาน</button>
           </div>
         </form>
       </div>

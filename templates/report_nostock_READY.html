@@ -87,9 +87,9 @@
   <!-- Header Section -->
   <div class="d-flex justify-content-between align-items-center mb-4 no-print flex-wrap gap-2">
     <div>
-      <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary btn-sm mb-2"><i class="bi bi-arrow-left"></i> กลับหน้าหลัก</a>
+      <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary btn-sm mb-2"><i data-lucide="arrow-left"></i> กลับหน้าหลัก</a>
       <h3 class="fw-bold mb-0">
-        <i class="bi bi-file-earmark-x-fill text-danger me-2"></i>
+        <i data-lucide="file-x" class="text-danger me-2"></i>
         รายงานไม่มีสินค้า (No Stock) 
         {% if is_history_view %}<span class="badge bg-secondary fs-6 align-middle ms-2">ประวัติ</span>{% endif %}
       </h3>
@@ -98,37 +98,37 @@
     <div class="d-flex gap-2 flex-wrap">
       {% if is_history_view %}
         <a href="{{ url_for('report_nostock') }}" class="btn btn-outline-primary">
-          <i class="bi bi-file-earmark"></i> ดูรายการปัจจุบัน
+          <i data-lucide="file-text"></i> ดูรายการปัจจุบัน
         </a>
       {% endif %}
       
       {% if not is_history_view %}
         <button id="printSelectedBtn" class="btn btn-danger" onclick="printSelectedOrders()">
-          <i class="bi bi-lock-fill"></i> พิมพ์และล็อกงานที่เลือก
+          <i data-lucide="lock"></i> พิมพ์และล็อกงานที่เลือก
         </button>
       {% endif %}
       
-      <button class="btn btn-primary" onclick="window.print()"><i class="bi bi-printer"></i> พิมพ์หน้านี้</button>
+      <button class="btn btn-primary" onclick="window.print()"><i data-lucide="printer"></i> พิมพ์หน้านี้</button>
       
       <form id="printHistoryForm" method="post" action="{{ url_for('report_nostock_print') }}" style="display:inline;" onsubmit="return validatePrintHistory()">
         <input type="hidden" name="order_ids" value="{{ csv_oids }}">
-        <button id="printHistoryBtn" class="btn btn-success text-white" type="submit"><i class="bi bi-save"></i> พิมพ์ (บันทึกประวัติ)</button>
+        <button id="printHistoryBtn" class="btn btn-success text-white" type="submit"><i data-lucide="save"></i> พิมพ์ (บันทึกประวัติ)</button>
       </form>
       
       <div class="btn-group">
         <button type="button" class="btn btn-outline-success dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-          <i class="bi bi-file-earmark-excel"></i> Excel
+          <i data-lucide="file-spreadsheet"></i> Excel
         </button>
         <ul class="dropdown-menu dropdown-menu-end">
           <li>
             <a class="dropdown-item" href="{{ url_for('report_nostock_export', platform=platform_sel, shop_id=shop_sel, logistic=logistic_sel, q=q, sort=sort_col, dir=sort_dir, round=round_sel, date_from=date_from, date_to=date_to, import_from=import_from, import_to=import_to) }}">
-              <i class="bi bi-filter"></i> ตามตัวกรองหน้าจอ ({{ summary.orders_count if summary else 0 }} Order)
+              <i data-lucide="filter"></i> ตามตัวกรองหน้าจอ ({{ summary.orders_count if summary else 0 }} Order)
             </a>
           </li>
           <li><hr class="dropdown-divider"></li>
           <li>
             <a class="dropdown-item" href="{{ url_for('report_nostock_export') }}">
-              <i class="bi bi-database"></i> ข้อมูลทั้งหมด (ไม่สนตัวกรอง)
+              <i data-lucide="database"></i> ข้อมูลทั้งหมด (ไม่สนตัวกรอง)
             </a>
           </li>
         </ul>
@@ -136,7 +136,7 @@
 
       <div class="dropdown">
         <button class="btn btn-outline-dark dropdown-toggle" type="button" data-bs-toggle="dropdown">
-          <i class="bi bi-clock-history"></i> ประวัติ
+          <i data-lucide="history"></i> ประวัติ
         </button>
         <ul class="dropdown-menu dropdown-menu-end">
           <li><a class="dropdown-item" href="{{ url_for('report_nostock_printed') }}">ดูทั้งหมด</a></li>
@@ -157,7 +157,7 @@
     <div class="col-md-3 col-6">
       <div class="card card-kpi h-100">
         <div class="card-body d-flex align-items-center p-3">
-          <div class="kpi-icon bg-soft-primary me-3"><i class="bi bi-box-seam"></i></div>
+          <div class="kpi-icon bg-soft-primary me-3"><i data-lucide="package"></i></div>
           <div>
             <div class="text-muted small text-uppercase fw-bold">จำนวน Order</div>
             <h4 class="mb-0 fw-bold">{{ summary.orders_count if summary is defined else 0 }}</h4>
@@ -169,7 +169,7 @@
     <div class="col-md-3 col-6">
       <div class="card card-kpi h-100">
         <div class="card-body d-flex align-items-center p-3">
-          <div class="kpi-icon bg-soft-danger me-3"><i class="bi bi-x-circle"></i></div>
+          <div class="kpi-icon bg-soft-danger me-3"><i data-lucide="x-circle"></i></div>
           <div>
             <div class="text-muted small text-uppercase fw-bold">SKU ไม่มีสินค้า</div>
             <h4 class="mb-0 fw-bold text-danger">{{ summary.sku_count if summary is defined else 0 }}</h4>
@@ -181,7 +181,7 @@
     <div class="col-md-2 col-6">
       <div class="card card-kpi h-100 border-success">
         <div class="card-body d-flex flex-column align-items-center justify-content-center p-2">
-          <h6 class="text-success text-uppercase fw-bold mb-1" style="font-size: 0.75rem;">✅ Scan แล้ว</h6>
+          <h6 class="text-success text-uppercase fw-bold mb-1" style="font-size: 0.75rem;"><i data-lucide="check-circle-2"></i> Scan แล้ว</h6>
           <h2 class="fw-bold text-success mb-0" id="dash-scanned">0</h2>
         </div>
       </div>
@@ -191,7 +191,7 @@
       <div class="d-print-none mx-auto w-100">
         <div class="input-group shadow-sm mb-1">
           <span class="input-group-text bg-danger text-white border-danger px-3">
-            <i class="bi bi-upc-scan" style="font-size: 18px;"></i>
+            <i data-lucide="scan-barcode" style="font-size: 18px;"></i>
           </span>
           <input type="text" id="globalScanInput" class="form-control fw-bold text-danger" 
                  placeholder="ยิงบาร์โค้ด..." autocomplete="off" autofocus style="height: 45px;">
@@ -199,7 +199,7 @@
         <div id="globalScanStatusContainer">
           <div id="globalScanStatus" class="alert alert-secondary text-center shadow-sm border py-1 mb-0" role="alert" 
                style="min-height: 40px; display: flex; align-items: center; justify-content: center;">
-            <span class="text-muted small"><i class="bi bi-circle-fill text-success" style="font-size: 8px;"></i> พร้อมใช้งาน</span>
+            <span class="text-muted small"><i data-lucide="circle" class="text-success" style="font-size: 8px;"></i> พร้อมใช้งาน</span>
           </div>
         </div>
       </div>
@@ -253,15 +253,15 @@
         </div>
         
         <div class="col-md-3 col-12 d-flex gap-2">
-          <button class="btn btn-primary btn-sm px-3 fw-bold"><i class="bi bi-search"></i> กรอง</button>
+          <button class="btn btn-primary btn-sm px-3 fw-bold"><i data-lucide="search"></i> กรอง</button>
           
           {% if is_history_view %}
             <a href="{{ url_for('report_nostock_printed', reset='today') }}" class="btn btn-warning btn-sm fw-bold text-dark flex-fill">
-              <i class="bi bi-arrow-clockwise"></i> รีเฟรช (วันนี้)
+              <i data-lucide="refresh-cw"></i> รีเฟรช (วันนี้)
             </a>
           {% else %}
             <a href="{{ url_for('report_nostock') }}" class="btn btn-warning btn-sm fw-bold text-dark flex-fill">
-              <i class="bi bi-arrow-clockwise"></i> รีเฟรช / Orderค้าง
+              <i data-lucide="refresh-cw"></i> รีเฟรช / Orderค้าง
             </a>
           {% endif %}
         </div>
@@ -297,7 +297,7 @@
 
             <div class="col-auto ms-auto">
               <button type="button" class="btn btn-outline-primary btn-sm px-4 fw-bold" onclick="setAllToday()">
-                <i class="bi bi-calendar-event"></i> วันนี้
+                <i data-lucide="calendar-check"></i> วันนี้
               </button>
             </div>
           </div>
@@ -328,7 +328,7 @@
       <label class="fw-bold mb-0">อัปเดตจ่ายงาน(รอบที่):</label>
       <input id="round-input" type="number" min="1" step="1" class="form-control form-control-sm" style="width:80px;">
       <button class="btn btn-success btn-sm" type="button" onclick="updateRound()">
-        <i class="bi bi-check-circle"></i> บันทึกรอบให้ทุกออเดอร์ในรายงานนี้
+        <i data-lucide="check-circle"></i> บันทึกรอบให้ทุกออเดอร์ในรายงานนี้
       </button>
       <span class="text-muted small">จะอัปเดตเฉพาะคอลัมน์ <b>nostock_round</b></span>
     </div>
@@ -392,7 +392,7 @@
               <td class="text-center">{{ r.assign_round if r.assign_round is not none else '-' }}</td>
               <td class="text-center">{{ r.printed_count or 0 }}</td>
               <td><small>{{ r.printed_at.strftime('%d/%m/%Y %H:%M') if r.printed_at else '' }}</small></td>
-              <td class="text-danger"><small>{% if r.note %}⚠️ {{ r.note }}{% endif %}</small></td>
+              <td class="text-danger"><small>{% if r.note %}<i data-lucide="alert-triangle"></i> {{ r.note }}{% endif %}</small></td>
               
               <td class="text-center p-1 scan-cell">
                 <input type="text" class="form-control form-control-sm text-center fw-bold scan-input" 
@@ -427,7 +427,7 @@
   <!-- History Notice -->
   {% if is_history_view %}
   <div class="alert alert-info mt-3 no-print">
-    <i class="bi bi-info-circle me-2"></i>
+    <i data-lucide="info" class="me-2"></i>
     กำลังดูประวัติการพิมพ์รายงานไม่มีสินค้า
     {% if printed_at %}
     <span class="ms-2">| บันทึกล่าสุด: <b>{{ printed_at.strftime('%d/%m/%Y %H:%M:%S') }}</b></span>
@@ -594,7 +594,7 @@
             } else {
               markAsScanned_UI(input[0]);
               apiScanOrder(cleanValue);
-              showGlobalStatus(`<i class="bi bi-check-circle-fill"></i> Scan successful<br><small>${cleanValue}</small>`, 'success');
+              showGlobalStatus(`<i data-lucide="check-circle"></i> Scan successful<br><small>${cleanValue}</small>`, 'success');
               playBeep('success');
               this.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
@@ -733,7 +733,7 @@
 
       if (type !== 'normal' && type !== 'loading') {
         scanStatusTimer = setTimeout(() => {
-          showGlobalStatus('<span class="text-muted small"><i class="bi bi-circle-fill text-success" style="font-size:8px;"></i> Ready</span>', 'normal');
+          showGlobalStatus('<span class="text-muted small"><i data-lucide="circle" class="text-success" style="font-size:8px;"></i> Ready</span>', 'normal');
         }, 5000);
       }
     }
@@ -835,7 +835,7 @@
       }
 
       showGlobalStatus(
-        `<i class="bi bi-shield-x text-warning"></i> Protection Disabled<br><small>Will re-enable in ${minutes} minute(s)</small>`,
+        `<i data-lucide="unlock"></i> Protection Disabled<br><small>Will re-enable in ${minutes} minute(s)</small>`,
         'warning'
       );
 
@@ -865,7 +865,7 @@
       }
 
       showGlobalStatus(
-        '<i class="bi bi-shield-check text-success"></i> Protection Re-enabled',
+        '<i data-lucide="shield"></i> Protection Re-enabled',
         'success'
       );
 
@@ -888,7 +888,7 @@
       });
 
       showGlobalStatus(
-        `<span class="h2 fw-bold"><i class="bi bi-check-all me-2"></i> Scan All Completed<br><small>Scanned ${scannedCount} items</small></span>`,
+        `<span class="h2 fw-bold"><i data-lucide="check-circle"></i> Scan All Completed<br><small>Scanned ${scannedCount} items</small></span>`,
         'success'
       );
     }
@@ -918,7 +918,7 @@
 
       updateScanStats();
       showGlobalStatus(
-        `<span class="h2 fw-bold"><i class="bi bi-arrow-counterclockwise me-2"></i> Reset Completed<br><small>Cleared ${resetCount} items</small></span>`,
+        `<span class="h2 fw-bold"><i data-lucide="refresh-cw"></i> Reset Completed<br><small>Cleared ${resetCount} items</small></span>`,
         'info'
       );
     }

@@ -292,7 +292,7 @@
     <!-- Connection Status Alert -->
     {% if status.db_exists and status.volume_path != "Not Configured" %}
     <div class="alert-box success">
-        <div class="alert-icon">✓</div>
+        <div class="alert-icon"><i data-lucide="check-circle"></i></div>
         <div class="alert-content">
             <strong>System Operational</strong>
             <p>Railway Volume is connected. Database is persistent and will not be lost after deployment.</p>
@@ -447,10 +447,321 @@
         </table>
     </div>
 
+    <!-- Database Backup Management -->
+    <div class="status-section">
+        <h2 class="section-title">Database Backup Management</h2>
+
+        <!-- Action Buttons -->
+        <div style="display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap;">
+            <button onclick="downloadCurrentDB()" class="action-btn btn-primary">
+                <i data-lucide="download"></i> Download Current Database
+            </button>
+            <button onclick="createManualBackup()" class="action-btn btn-success">
+                <i data-lucide="save"></i> Create Manual Backup
+            </button>
+            <button onclick="loadBackupList()" class="action-btn btn-secondary">
+                <i data-lucide="refresh-cw"></i> Refresh List
+            </button>
+        </div>
+
+        <!-- Auto Backup Info -->
+        <div class="alert-box" style="margin-bottom: 24px;">
+            <div class="alert-icon"><i data-lucide="clock"></i></div>
+            <div class="alert-content">
+                <strong>Auto Backup Schedule</strong>
+                <p>Database automatically backed up every day at 19:00. Last 7 backups are kept.</p>
+            </div>
+        </div>
+
+        <!-- Backup List -->
+        <div id="backup-list-container">
+            <table class="info-table">
+                <thead>
+                    <tr>
+                        <th>Filename</th>
+                        <th>Size</th>
+                        <th>Created</th>
+                        <th>Type</th>
+                        <th style="text-align: center;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="backup-list-body">
+                    <tr>
+                        <td colspan="5" style="text-align: center; color: var(--text-secondary);">
+                            <i data-lucide="loader"></i> Loading backups...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
     <!-- Back Button -->
     <div style="text-align: center;">
         <a href="{{ url_for('dashboard') }}" class="back-button">Back to Dashboard</a>
     </div>
 </div>
+
+<style>
+    /* Action Buttons */
+    .action-btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        font-weight: 500;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .btn-primary {
+        background: var(--text-primary);
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: var(--accent-color);
+        transform: translateY(-1px);
+    }
+
+    .btn-success {
+        background: #2D3748;
+        color: white;
+    }
+
+    .btn-success:hover {
+        background: #1A202C;
+        transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        border: 1px solid var(--border-color);
+    }
+
+    .btn-secondary:hover {
+        background: #E5E5E5;
+    }
+
+    .btn-danger {
+        background: #DC2626;
+        color: white;
+        padding: 6px 12px;
+        font-size: 0.85rem;
+    }
+
+    .btn-danger:hover {
+        background: #B91C1C;
+    }
+
+    .btn-download {
+        background: #2563EB;
+        color: white;
+        padding: 6px 12px;
+        font-size: 0.85rem;
+        margin-right: 8px;
+    }
+
+    .btn-download:hover {
+        background: #1D4ED8;
+    }
+
+    .action-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    /* Backup Table Enhancements */
+    .backup-actions {
+        display: flex;
+        justify-content: center;
+        gap: 8px;
+    }
+
+    .type-badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .type-auto {
+        background: #DBEAFE;
+        color: #1E40AF;
+    }
+
+    .type-manual {
+        background: #D1FAE5;
+        color: #065F46;
+    }
+</style>
+
+<script>
+    // Password Protection
+    (function() {
+        const password = prompt('Enter password:');
+
+        if (password !== 'pdev') {
+            if (password !== null) {
+                alert('Incorrect password');
+            }
+            window.location.href = "{{ url_for('dashboard') }}";
+            return;
+        }
+    })();
+
+    // Download Current Database
+    async function downloadCurrentDB() {
+        try {
+            const response = await fetch('/api/backup/current');
+            if (!response.ok) {
+                throw new Error('Failed to download database');
+            }
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `database_${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            alert('Database downloaded successfully!');
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Failed to download database: ' + error.message);
+        }
+    }
+
+    // Create Manual Backup
+    async function createManualBackup() {
+        if (!confirm('Create a manual backup now?')) return;
+
+        try {
+            const response = await fetch('/api/backup/create', { method: 'POST' });
+            const data = await response.json();
+
+            if (response.ok) {
+                alert('Backup created successfully: ' + data.filename);
+                loadBackupList(); // Refresh list
+            } else {
+                throw new Error(data.error || 'Failed to create backup');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Failed to create backup: ' + error.message);
+        }
+    }
+
+    // Load Backup List
+    async function loadBackupList() {
+        const tbody = document.getElementById('backup-list-body');
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;"><i data-lucide="loader"></i> Loading...</td></tr>';
+
+        // Re-initialize Lucide icons for the loader
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
+
+        try {
+            const response = await fetch('/api/backup/list');
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to load backups');
+            }
+
+            if (data.backups.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No backups found</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = data.backups.map(backup => `
+                <tr>
+                    <td style="font-family: 'SF Mono', Monaco, monospace;">${backup.filename}</td>
+                    <td>${backup.size}</td>
+                    <td>${backup.created}</td>
+                    <td><span class="type-badge type-${backup.type}">${backup.type}</span></td>
+                    <td>
+                        <div class="backup-actions">
+                            <button onclick="downloadBackup('${backup.filename}')" class="action-btn btn-download">
+                                <i data-lucide="download"></i> Download
+                            </button>
+                            <button onclick="deleteBackup('${backup.filename}')" class="action-btn btn-danger">
+                                <i data-lucide="trash-2"></i> Delete
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+
+            // Re-initialize Lucide icons
+            if (typeof lucide !== 'undefined') {
+                lucide.createIcons();
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: #DC2626;">Error: ${error.message}</td></tr>`;
+        }
+    }
+
+    // Download Specific Backup
+    async function downloadBackup(filename) {
+        try {
+            const response = await fetch(`/api/backup/download/${filename}`);
+            if (!response.ok) {
+                throw new Error('Failed to download backup');
+            }
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            alert('Backup downloaded successfully!');
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Failed to download backup: ' + error.message);
+        }
+    }
+
+    // Delete Backup
+    async function deleteBackup(filename) {
+        if (!confirm(`Are you sure you want to delete backup: ${filename}?`)) return;
+
+        try {
+            const response = await fetch(`/api/backup/delete/${filename}`, { method: 'DELETE' });
+            const data = await response.json();
+
+            if (response.ok) {
+                alert('Backup deleted successfully!');
+                loadBackupList(); // Refresh list
+            } else {
+                throw new Error(data.error || 'Failed to delete backup');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Failed to delete backup: ' + error.message);
+        }
+    }
+
+    // Load backup list on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        loadBackupList();
+    });
+</script>
 
 {% endblock %}
