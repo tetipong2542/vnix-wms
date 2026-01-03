@@ -3284,6 +3284,26 @@ def create_app():
             # ประมวลผล
             if order_ids:
                 added, dups = _process_cancel_import(order_ids, source_name, cu.id)
+
+                # บันทึก URL อัตโนมัติ (เฉพาะกรณี Google Sheet)
+                if mode == "gsheet":
+                    sheet_url = request.form.get("sheet_url", "").strip()
+                    if sheet_url:
+                        try:
+                            config_shop = Shop.query.filter_by(platform='CANCEL_SYSTEM', name='GoogleSheet').first()
+                            if not config_shop:
+                                config_shop = Shop(platform='CANCEL_SYSTEM', name='GoogleSheet')
+                                db.session.add(config_shop)
+                                db.session.flush()  # ใช้ flush แทน commit เพื่อให้ได้ ID
+
+                            db.session.execute(
+                                text("UPDATE shops SET google_sheet_url = :u WHERE id = :id"),
+                                {"u": sheet_url, "id": config_shop.id}
+                            )
+                            db.session.commit()
+                        except Exception:
+                            pass
+
                 flash(f"✅ นำเข้าสำเร็จ: เพิ่มใหม่ {added}, ซ้ำ {dups} รายการ", "success")
             else:
                 flash("ไม่พบข้อมูล Order ID", "warning")
